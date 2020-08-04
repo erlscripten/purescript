@@ -34,14 +34,15 @@ import Language.PureScript.CoreImp.Optimizer.Unused
 -- | Apply a series of optimizer passes to simplified JavaScript code
 optimize :: MonadSupply m => AST -> m AST
 optimize js = do
-    js' <- untilFixedPoint (inlineFnComposition . inlineUnsafeCoerce . inlineUnsafePartial . tidyUp . applyAll
-      [ inlineCommonValues
-      , inlineCommonOperators
+    let expander = buildExpander js
+    js' <- untilFixedPoint (inlineFnComposition expander . inlineFnIdentity expander . inlineUnsafeCoerce . inlineUnsafePartial . tidyUp . applyAll
+      [ inlineCommonValues expander
+      , inlineCommonOperators expander
       ]) js
-    untilFixedPoint (return . tidyUp) . tco . inlineST
-      =<< untilFixedPoint (return . magicDoST)
-      =<< untilFixedPoint (return . magicDoEff)
-      =<< untilFixedPoint (return . magicDoEffect) js'
+    untilFixedPoint (return . tidyUp) . tco . tidyUp . removeUnusedPureVars . inlineST
+      =<< untilFixedPoint (return . magicDoST expander)
+      =<< untilFixedPoint (return . magicDoEff expander)
+      =<< untilFixedPoint (return . magicDoEffect expander) js'
   where
     tidyUp :: AST -> AST
     tidyUp = applyAll
@@ -54,6 +55,23 @@ optimize js = do
       , evaluateIifes
       , inlineVariables
       ]
+
+-- |
+-- Takes a top level AST and returns a function for expanding local variables
+-- during the various inlining steps in `optimize`.
+--
+-- Everything that gets inlined as an optimization is of a form that would have
+-- been lifted to a single outermost Let during CSE, so for purposes of
+-- inlining we can save some time by only expanding variables bound at that
+-- level and not worrying about any inner scopes.
+--
+buildExpander :: AST -> AST -> AST
+buildExpander (VariableIntroduction _ _ (Just (_, (App _ (Function _ Nothing [] (Block _ bs)) [])))) =
+  replaceIdents (foldr f [] bs)
+  where
+  f (VariableIntroduction _ name (Just (IsPure, e))) = ((name, e) :)
+  f _ = id
+buildExpander _ = id
 
 untilFixedPoint :: (Monad m, Eq a) => (a -> m a) -> a -> m a
 untilFixedPoint f = go

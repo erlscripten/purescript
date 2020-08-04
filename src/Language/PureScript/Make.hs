@@ -48,8 +48,6 @@ import qualified Language.PureScript.CoreFn as CF
 import           System.Directory (doesFileExist)
 import           System.FilePath (replaceExtension)
 
-import Debug.Trace
-
 -- | Rebuild a single module.
 --
 -- This function is used for fast-rebuild workflows (PSCi and psc-ide are examples).
@@ -102,7 +100,7 @@ rebuildModule' MakeActions{..} exEnv externs m@(Module _ _ moduleName _ _) = do
   seq (last regrouped) $ progress $ CoreFnGenModule moduleName
   let corefn = CF.moduleToCoreFn env' mod'
   progress $ CoreFnOptModule moduleName
-  let optimized = CF.optimizeCoreFn corefn
+  let (optimized, nextVar'') = CF.optimizeCoreFn corefn
       [renamed] = renameInModules [optimized]
       exts = moduleToExternsFile mod' env'
   progress $ FFICodegenModule moduleName

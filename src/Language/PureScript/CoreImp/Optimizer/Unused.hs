@@ -2,6 +2,7 @@
 module Language.PureScript.CoreImp.Optimizer.Unused
   ( removeCodeAfterReturnStatements
   , removeUndefinedApp
+  , removeUnusedPureVars
   ) where
 
 import Prelude.Compat
@@ -25,3 +26,10 @@ removeUndefinedApp = everywhere convert
   where
   convert (App ss fn [Var _ arg]) | arg == C.undefined = App ss fn []
   convert js = js
+
+removeUnusedPureVars :: AST -> AST
+removeUnusedPureVars = everywhere $ removeFromBlock (foldr f [])
+  where
+  f :: AST -> [AST] -> [AST]
+  f (VariableIntroduction _ var (Just (IsPure, _))) sts | not (any (isUsed var) sts) = sts
+  f s sts = s : sts
