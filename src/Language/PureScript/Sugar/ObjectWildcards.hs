@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 module Language.PureScript.Sugar.ObjectWildcards
   ( desugarObjectConstructors
   , desugarDecl

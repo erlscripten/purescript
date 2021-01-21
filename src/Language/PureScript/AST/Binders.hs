@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- |
 -- Case binders
 --

@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- |
 -- This module implements the desugaring pass which replaces top-level binders with
 -- case expressions.

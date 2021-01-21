@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- |
 -- AST traversal helpers
 --
@@ -43,6 +44,7 @@ litM go (ObjectLiteral as) = ObjectLiteral <$> traverse (sndM go) as
 litM go (ArrayLiteral as) = ArrayLiteral <$> traverse go as
 litM _ other = pure other
 
+{-# INLINE everywhereOnValues #-}
 everywhereOnValues
   :: (Declaration -> Declaration)
   -> (Expr -> Expr)

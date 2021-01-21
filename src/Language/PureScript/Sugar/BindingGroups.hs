@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- |
 -- This module implements the desugaring pass which creates binding groups from sets of
 -- mutually-recursive value declarations and mutually-recursive type declarations.

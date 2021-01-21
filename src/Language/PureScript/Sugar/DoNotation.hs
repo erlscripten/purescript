@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- | This module implements the desugaring pass which replaces do-notation statements with
 -- appropriate calls to bind.
 

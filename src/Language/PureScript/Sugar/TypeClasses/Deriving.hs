@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- | This module implements the generic deriving elaboration that takes place during desugaring.
 module Language.PureScript.Sugar.TypeClasses.Deriving (deriveInstances) where
 

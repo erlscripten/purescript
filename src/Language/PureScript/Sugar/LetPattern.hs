@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- |
 -- This module implements the desugaring pass which replaces patterns in let-in
 -- expressions with appropriate case expressions.

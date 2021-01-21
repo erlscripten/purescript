@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- | Common functions for implementing generic traversals
 module Language.PureScript.Traversals where
 

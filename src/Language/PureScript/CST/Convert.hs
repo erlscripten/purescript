@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict #-}
+
 -- | This module contains functions for converting the CST into the core AST. It
 -- is mostly boilerplate, and does the job of resolving ranges for all the nodes
 -- and attaching comments.

@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict #-}
+
 module Language.PureScript.CST.Monad where
 
 import Prelude

@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 module Language.PureScript.Sugar.Operators.Binders where
 
 import Prelude.Compat

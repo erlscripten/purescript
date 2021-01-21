@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE Strict #-}
 module Language.PureScript.CST.Lexer
   ( lenient
   , lex

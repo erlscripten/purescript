@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 module Language.PureScript.Environment where

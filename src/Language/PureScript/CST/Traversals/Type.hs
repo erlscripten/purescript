@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 module Language.PureScript.CST.Traversals.Type where
 
 import Prelude

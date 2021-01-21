@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict #-}
+
 -- | This module contains data types for the entire PureScript surface language. Every
 -- token is represented in the tree, and every token is annotated with
 -- whitespace and comments (both leading and trailing). This means one can write

@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- |
 -- This module implements the desugaring pass which creates type synonyms for type class dictionaries
 -- and dictionary expressions for type class instances.

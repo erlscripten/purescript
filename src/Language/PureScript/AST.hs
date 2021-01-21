@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- |
 -- The initial PureScript AST
 --

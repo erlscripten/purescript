@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- | This is just a simple token printer. It's not a full fledged formatter, but
 -- it is used by the layout golden tests. Printing each token in the tree with
 -- this printer will result in the exact input that was given to the lexer.

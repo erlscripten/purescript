@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict #-}
+
 -- | The parser itself is unaware of indentation, and instead only parses explicit
 -- delimiters which are inserted by this layout algorithm (much like Haskell).
 -- This is convenient because the actual grammar can be specified apart from the
@@ -29,6 +31,8 @@ import Data.Function ((&))
 import Language.PureScript.CST.Types
 
 type LayoutStack = [(SourcePos, LayoutDelim)]
+
+
 
 data LayoutDelim
   = LytRoot

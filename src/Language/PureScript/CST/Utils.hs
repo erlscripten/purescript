@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 {-# LANGUAGE MonoLocalBinds #-}
 module Language.PureScript.CST.Utils where
 
