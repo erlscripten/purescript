@@ -10,7 +10,7 @@ import Data.Foldable (foldr)
 import Data.Functor (($>), (<&>))
 import qualified Data.Set as S
 import Data.Text (Text, pack)
-import qualified Language.PureScript.Constants.Prim as C
+import qualified Language.PureScript.Constants as C
 import Language.PureScript.CoreImp.AST
 import Language.PureScript.AST.SourcePos (SourceSpan)
 import Safe (headDef, tailSafe)
