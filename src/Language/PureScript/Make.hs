@@ -74,24 +74,34 @@ rebuildModule' MakeActions{..} exEnv externs m@(Module _ _ moduleName _ _) = do
   progress $ CompilingModule moduleName
   let env = foldl' (flip applyExternsFileToEnvironment) initEnvironment externs
       withPrim = importPrim m
+  progress $ LintingModule moduleName
   lint withPrim
-  ((Module ss coms _ elaborated exps, env'), nextVar) <- runSupplyT 0 $ do
+  progress $ DesugarModule moduleName
+  (desugared, nextVar) <- runSupplyT 0 $ do
     desugar exEnv externs [withPrim] >>= \case
-      [desugared] -> runCheck' (emptyCheckState env) $ typeCheckModule desugared
+      [desugared] ->
+        return desugared
       _ -> internalError "desugar did not return a singleton"
-
+  progress $ TypeCheckModule moduleName
+  ((Module ss coms _ elaborated exps, env'), nextVar') <- runSupplyT nextVar $ do
+    runCheck' (emptyCheckState env) $ typeCheckModule desugared
   -- desugar case declarations *after* type- and exhaustiveness checking
   -- since pattern guards introduces cases which the exhaustiveness checker
   -- reports as not-exhaustive.
-  (deguarded, nextVar') <- runSupplyT nextVar $ do
+  progress $ DesugarCaseGuardsModule moduleName
+  (deguarded, nextVar'') <- runSupplyT nextVar' $ do
     desugarCaseGuards elaborated
 
+  progress $ CollapseBindingGroupsModule moduleName
   regrouped <- createBindingGroups moduleName . collapseBindingGroups $ deguarded
   let mod' = Module ss coms moduleName regrouped exps
-      corefn = CF.moduleToCoreFn env' mod'
-      optimized = CF.optimizeCoreFn corefn
+  progress $ CoreFnGenModule moduleName
+  let corefn = CF.moduleToCoreFn env' mod'
+  progress $ CoreFnOptModule moduleName
+  let optimized = CF.optimizeCoreFn corefn
       [renamed] = renameInModules [optimized]
       exts = moduleToExternsFile mod' env'
+  progress $ FFICodegenModule moduleName
   ffiCodegen renamed
 
   -- It may seem more obvious to write `docs <- Docs.convertModule m env' here,
@@ -101,13 +111,16 @@ rebuildModule' MakeActions{..} exEnv externs m@(Module _ _ moduleName _ _) = do
   -- a bug in the compiler, which should be reported as such.
   -- 2. We do not want to perform any extra work generating docs unless the
   -- user has asked for docs to be generated.
+  progress $ DocsModule moduleName
   let docs = case Docs.convertModule externs exEnv env' m of
                Left errs -> internalError $
                  "Failed to produce docs for " ++ T.unpack (runModuleName moduleName)
                  ++ "; details:\n" ++ prettyPrintMultipleErrors defaultPPEOptions errs
                Right d -> d
 
-  evalSupplyT nextVar' $ codegen renamed docs exts
+  progress $ CodegenModule moduleName
+  evalSupplyT nextVar'' $ codegen renamed docs exts
+  progress $ DoneModule moduleName
   return exts
 
 -- | Compiles in "make" mode, compiling each module separately to a @.js@ file and an @externs.cbor@ file.

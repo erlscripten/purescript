@@ -66,12 +66,40 @@ data RebuildPolicy
 -- | Progress messages from the make process
 data ProgressMessage
   = CompilingModule ModuleName
+  | LintingModule ModuleName
+  | DesugarModule ModuleName
+  | TypeCheckModule ModuleName
+  | DesugarCaseGuardsModule ModuleName
+  | CollapseBindingGroupsModule ModuleName
+  | CoreFnGenModule ModuleName
+  | CoreFnOptModule ModuleName
+  | FFICodegenModule ModuleName
+  | DocsModule ModuleName
+  | CodegenModule ModuleName
+  | DoneModule ModuleName
   -- ^ Compilation started for the specified module
   deriving (Show, Eq, Ord)
 
 -- | Render a progress message
 renderProgressMessage :: ProgressMessage -> String
-renderProgressMessage (CompilingModule mn) = "Compiling " ++ T.unpack (runModuleName mn)
+renderProgressMessage (CompilingModule mn) =  renderPrefixed mn "Compiling"
+renderProgressMessage (LintingModule mn) = renderPrefixed mn "Linting module"
+renderProgressMessage (DesugarModule mn) = renderPrefixed mn "Desugar module"
+renderProgressMessage (TypeCheckModule mn) = renderPrefixed mn "Typecheck module"
+renderProgressMessage (DesugarCaseGuardsModule mn) = renderPrefixed mn "Desugar case guards"
+renderProgressMessage (CollapseBindingGroupsModule mn) = renderPrefixed mn "Collapse Binding Groups"
+renderProgressMessage (CoreFnGenModule mn) = renderPrefixed mn "CoreFn gen"
+renderProgressMessage (CoreFnOptModule mn) = renderPrefixed mn "CoreFn opt"
+renderProgressMessage (FFICodegenModule mn) = renderPrefixed mn "Codegen FFI"
+renderProgressMessage (DocsModule mn) = renderPrefixed mn "Generating docs"
+renderProgressMessage (CodegenModule mn) = renderPrefixed mn "Codegen"
+renderProgressMessage (DoneModule mn) = renderPrefixed mn "Done"
+
+renderPrefixed :: ModuleName -> String -> String
+renderPrefixed mn msg = renderModuleName mn ++ " " ++ msg
+
+renderModuleName :: ModuleName -> String
+renderModuleName mn = "[" ++ T.unpack (runModuleName mn) ++ "]"
 
 -- | Actions that require implementations when running in "make" mode.
 --
