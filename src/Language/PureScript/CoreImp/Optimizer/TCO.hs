@@ -6,7 +6,7 @@ import Prelude.Compat
 import Control.Applicative (empty, liftA2)
 import Control.Monad (guard)
 import Control.Monad.State (State, evalState, get, modify)
-import Data.Foldable (foldr)
+import Data.Foldable (foldr, fold)
 import Data.Functor (($>), (<&>))
 import qualified Data.Set as S
 import Data.Text (Text, pack)
@@ -14,6 +14,8 @@ import qualified Language.PureScript.Constants as C
 import Language.PureScript.CoreImp.AST
 import Language.PureScript.AST.SourcePos (SourceSpan)
 import Safe (headDef, tailSafe)
+
+import Debug.Trace
 
 -- | Eliminate tail calls
 tco :: AST -> AST
@@ -37,7 +39,7 @@ tco = flip evalState 0 . everywhereTopDownM convert where
   convert :: AST -> State Int AST
   convert (VariableIntroduction ss name (Just fn@Function {}))
       | Just trFns <- findTailRecursiveFns name arity body'
-      = VariableIntroduction ss name . Just . replace <$> toLoop trFns name arity outerArgs innerArgs body'
+      = trace ("TCO APPLIED FOR " <> show name) $ VariableIntroduction ss name . Just . replace <$> toLoop trFns name arity outerArgs innerArgs body'
     where
       innerArgs = headDef [] argss
       outerArgs = concat . reverse $ tailSafe argss
@@ -45,6 +47,7 @@ tco = flip evalState 0 . everywhereTopDownM convert where
       -- ^ this is the number of calls, not the number of arguments, if there's
       -- ever a practical difference.
       (argss, body', replace) = topCollectAllFunctionArgs [] id fn
+  convert js@(VariableIntroduction ss name (Just fn@Function {})) = trace ("NO TCO FOR " <> show name) $ pure js
   convert js = pure js
 
   rewriteFunctionsWith :: ([Text] -> [Text]) -> [[Text]] -> (AST -> AST) -> AST -> ([[Text]], AST, AST -> AST)
@@ -93,39 +96,29 @@ tco = flip evalState 0 . everywhereTopDownM convert where
   -- identifier to be considered in tail position (or Nothing if this
   -- identifier is used somewhere not as a tail call with full arity).
   findTailPositionDeps :: (Text, Int) -> AST -> Maybe (S.Set (Text, Int))
-  findTailPositionDeps (ident, arity) js = allInTailPosition js where
-    countSelfReferences = countReferences ident
+  findTailPositionDeps (ident, arity) js = anyInTailPosition js where
 
-    allInTailPosition (Return _ expr)
-      | isSelfCall ident arity expr = guard (countSelfReferences expr == 1) $> S.empty
-      | otherwise = guard (countSelfReferences expr == 0) $> S.empty
-    allInTailPosition (While _ js1 body)
-      = guard (countSelfReferences js1 == 0) *> allInTailPosition body
-    allInTailPosition (For _ _ js1 js2 body)
-      = guard (countSelfReferences js1 == 0 && countSelfReferences js2 == 0) *> allInTailPosition body
-    allInTailPosition (ForIn _ _ js1 body)
-      = guard (countSelfReferences js1 == 0) *> allInTailPosition body
-    allInTailPosition (IfElse _ js1 body el)
-      = guard (countSelfReferences js1 == 0) *> liftA2 mappend (allInTailPosition body) (foldMapA allInTailPosition el)
-    allInTailPosition (Block _ body)
-      = foldMapA allInTailPosition body
-    allInTailPosition (Throw _ js1)
-      = guard (countSelfReferences js1 == 0) $> S.empty
-    allInTailPosition (ReturnNoResult _)
-      = pure S.empty
-    allInTailPosition (VariableIntroduction _ _ Nothing)
-      = pure S.empty
-    allInTailPosition (VariableIntroduction _ ident' (Just js1))
-      | countSelfReferences js1 == 0 = pure S.empty
+    anyInTailPosition :: AST -> Maybe (S.Set (Text, Int))
+    anyInTailPosition (Return _ expr) | isSelfCall ident arity expr =
+                                          trace "FOUND SOME DUDE" $  pure S.empty
+    anyInTailPosition (While _ _ body)
+      = anyInTailPosition body
+    anyInTailPosition (For _ _ _ _ body)
+      = anyInTailPosition body
+    anyInTailPosition (ForIn _ _ _ body)
+      = anyInTailPosition body
+    anyInTailPosition (IfElse _ _ body el)
+      = (anyInTailPosition body) <> (foldMap anyInTailPosition el)
+    anyInTailPosition (Block _ body)
+      = foldMap anyInTailPosition body
+    anyInTailPosition (VariableIntroduction _ ident' (Just js1))
       | Function _ Nothing _ _ <- js1
       , (argss, body, _) <- innerCollectAllFunctionArgs [] id js1
-        = S.insert (ident', length argss) <$> allInTailPosition body
+        = S.insert (ident', length argss) <$> anyInTailPosition body
       | otherwise = empty
-    allInTailPosition (Assignment _ _ js1)
-      = guard (countSelfReferences js1 == 0) $> S.empty
-    allInTailPosition (Comment _ _ js1)
-      = allInTailPosition js1
-    allInTailPosition _
+    anyInTailPosition (Comment _ _ js1)
+      = anyInTailPosition js1
+    anyInTailPosition _
       = empty
 
   toLoop :: S.Set Text -> Text -> Int -> [Text] -> [Text] -> AST -> State Int AST
