@@ -87,22 +87,28 @@ createBindingGroups moduleName = mapM f <=< handleDecls
       extractGuardedExpr [MkUnguarded expr] = expr
       extractGuardedExpr _ = internalError "Expected Guards to have been desugared in handleDecls."
 
+flattenBindingGroups :: [Declaration] -> [Declaration]
+flattenBindingGroups =
+  let go (DataBindingGroupDeclaration ds) = NEL.toList ds
+      go (BindingGroupDeclaration ds) =
+        NEL.toList $ fmap (\((sa, ident), nameKind, val) ->
+                             ValueDecl sa ident nameKind [] [MkUnguarded val]) ds
+      go other = [other]
+  in concatMap go
+
 -- |
 -- Collapse all binding groups to individual declarations
 --
 collapseBindingGroups :: [Declaration] -> [Declaration]
-collapseBindingGroups =
+collapseBindingGroups decls =
   let (f, _, _) = everywhereOnValues id collapseBindingGroupsForValue id
-  in fmap f . concatMap go
-  where
-  go (DataBindingGroupDeclaration ds) = NEL.toList ds
-  go (BindingGroupDeclaration ds) =
-    NEL.toList $ fmap (\((sa, ident), nameKind, val) ->
-      ValueDecl sa ident nameKind [] [MkUnguarded val]) ds
-  go other = [other]
+      gone = flattenBindingGroups decls
+      traversed = fmap f gone
+  in traversed
+
 
 collapseBindingGroupsForValue :: Expr -> Expr
-collapseBindingGroupsForValue (Let w ds val) = Let w (collapseBindingGroups ds) val
+collapseBindingGroupsForValue (Let w ds val) = Let w (flattenBindingGroups ds) val
 collapseBindingGroupsForValue other = other
 
 usedIdents :: ModuleName -> ValueDeclarationData Expr -> [Ident]

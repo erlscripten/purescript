@@ -48,6 +48,8 @@ import qualified Language.PureScript.CoreFn as CF
 import           System.Directory (doesFileExist)
 import           System.FilePath (replaceExtension)
 
+import Debug.Trace
+
 -- | Rebuild a single module.
 --
 -- This function is used for fast-rebuild workflows (PSCi and psc-ide are examples).
@@ -92,10 +94,12 @@ rebuildModule' MakeActions{..} exEnv externs m@(Module _ _ moduleName _ _) = do
   (deguarded, nextVar'') <- runSupplyT nextVar' $ do
     desugarCaseGuards elaborated
 
-  progress $ CollapseBindingGroupsModule moduleName
-  regrouped <- createBindingGroups moduleName . collapseBindingGroups $ deguarded
+  seq (last deguarded) $ progress $ CollapseBindingGroupsModule moduleName
+  let collapsed = collapseBindingGroups deguarded
+  seq (last collapsed) $ progress $ CreateBindingGroupsModule moduleName
+  regrouped <- createBindingGroups moduleName collapsed
   let mod' = Module ss coms moduleName regrouped exps
-  progress $ CoreFnGenModule moduleName
+  seq (last regrouped) $ progress $ CoreFnGenModule moduleName
   let corefn = CF.moduleToCoreFn env' mod'
   progress $ CoreFnOptModule moduleName
   let optimized = CF.optimizeCoreFn corefn
@@ -118,7 +122,7 @@ rebuildModule' MakeActions{..} exEnv externs m@(Module _ _ moduleName _ _) = do
                  ++ "; details:\n" ++ prettyPrintMultipleErrors defaultPPEOptions errs
                Right d -> d
 
-  progress $ CodegenModule moduleName
+  seq exts $ progress $ CodegenModule moduleName
   evalSupplyT nextVar'' $ codegen renamed docs exts
   progress $ DoneModule moduleName
   return exts

@@ -30,13 +30,14 @@ import Language.PureScript.CoreImp.Optimizer.MagicDo
 import Language.PureScript.CoreImp.Optimizer.TCO
 import Language.PureScript.CoreImp.Optimizer.Unused
 
+
 -- | Apply a series of optimizer passes to simplified JavaScript code
 optimize :: MonadSupply m => AST -> m AST
 optimize js = do
     js' <- untilFixedPoint (inlineFnComposition . inlineUnsafeCoerce . inlineUnsafePartial . tidyUp . applyAll
       [ inlineCommonValues
       , inlineCommonOperators
-      ]) js
+      ]) js -- DROGIE
     untilFixedPoint (return . tidyUp) . tco . inlineST
       =<< untilFixedPoint (return . magicDoST)
       =<< untilFixedPoint (return . magicDoEff)
@@ -58,5 +59,5 @@ untilFixedPoint :: (Monad m, Eq a) => (a -> m a) -> a -> m a
 untilFixedPoint f = go
   where
   go a = do
-   a' <- f a
-   if a' == a then return a' else go a'
+    a' <- f a
+    if a' == a then return a' else go a'
