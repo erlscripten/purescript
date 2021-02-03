@@ -55,15 +55,17 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     let usedNames = concatMap getNames decls
     let mnLookup = renameImports usedNames imps
     let decls' = renameModules mnLookup decls
+
+
     jsDecls <- mapM bindToJs decls'
     optimized <- traverse (traverse optimize) jsDecls
     let mnReverseLookup = M.fromList $ map (\(origName, (_, safeName)) -> (moduleNameToJs safeName, origName)) $ M.toList mnLookup
     let usedModuleNames = foldMap (foldMap (findModules mnReverseLookup)) optimized
     jsImports <- traverse (importToJs mnLookup)
-      . filter (flip S.member usedModuleNames)
+      . filter (`S.member` usedModuleNames)
       . (\\ (mn : C.primModules)) $ ordNub $ map snd imps
     F.traverse_ (F.traverse_ checkIntegers) optimized
-    comments <- not <$> asks optionsNoComments
+    comments <- asks (not . optionsNoComments)
     let strict = AST.StringLiteral Nothing "use strict"
     let header = if comments && not (null coms) then AST.Comment Nothing coms strict else strict
     let foreign' = [AST.VariableIntroduction Nothing "$foreign" foreign_ | not $ null foreigns || isNothing foreign_]

@@ -46,7 +46,6 @@ import           Language.PureScript.Externs (ExternsFile, externsFileName)
 import           Language.PureScript.Make.Monad
 import           Language.PureScript.Make.Cache
 import           Language.PureScript.Names
-import           Language.PureScript.Names (runModuleName, ModuleName)
 import           Language.PureScript.Options hiding (codegenTargets)
 import           Language.PureScript.Pretty.Common (SMap(..))
 import qualified Paths_purescript as Paths
@@ -71,6 +70,7 @@ data ProgressMessage
   | TypeCheckModule ModuleName
   | DesugarCaseGuardsModule ModuleName
   | CollapseBindingGroupsModule ModuleName
+  | CreateBindingGroupsModule ModuleName
   | CoreFnGenModule ModuleName
   | CoreFnOptModule ModuleName
   | FFICodegenModule ModuleName
@@ -88,6 +88,7 @@ renderProgressMessage (DesugarModule mn) = renderPrefixed mn "Desugar module"
 renderProgressMessage (TypeCheckModule mn) = renderPrefixed mn "Typecheck module"
 renderProgressMessage (DesugarCaseGuardsModule mn) = renderPrefixed mn "Desugar case guards"
 renderProgressMessage (CollapseBindingGroupsModule mn) = renderPrefixed mn "Collapse Binding Groups"
+renderProgressMessage (CreateBindingGroupsModule mn) = renderPrefixed mn "Create Binding Groups"
 renderProgressMessage (CoreFnGenModule mn) = renderPrefixed mn "CoreFn gen"
 renderProgressMessage (CoreFnOptModule mn) = renderPrefixed mn "CoreFn opt"
 renderProgressMessage (FFICodegenModule mn) = renderPrefixed mn "Codegen FFI"
@@ -243,7 +244,7 @@ buildMakeActions outputDir filePathMap foreigns usePrefix =
               return $ Just $ Imp.App Nothing (Imp.Var Nothing "require") [Imp.StringLiteral Nothing "./foreign.js"]
         Nothing | requiresForeign m -> throwError . errorMessage' (CF.moduleSourceSpan m) $ MissingFFIModule mn
                 | otherwise -> return Nothing
-      rawJs <- J.moduleToJs m foreignInclude
+      rawJs <- J.moduleToJs m foreignInclude -- DROGIE!
       dir <- lift $ makeIO "get the current directory" getCurrentDirectory
       let sourceMaps = S.member JSSourceMap codegenTargets
           (pjs, mappings) = if sourceMaps then prettyPrintJSWithSourceMaps rawJs else (prettyPrintJS rawJs, [])

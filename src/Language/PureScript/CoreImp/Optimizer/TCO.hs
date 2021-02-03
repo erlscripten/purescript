@@ -3,19 +3,16 @@ module Language.PureScript.CoreImp.Optimizer.TCO (tco) where
 
 import Prelude.Compat
 
-import Control.Applicative (empty, liftA2)
+import Control.Applicative (empty)
 import Control.Monad (guard)
 import Control.Monad.State (State, evalState, get, modify)
-import Data.Foldable (foldr, fold)
-import Data.Functor (($>), (<&>))
+import Data.Functor ((<&>))
 import qualified Data.Set as S
 import Data.Text (Text, pack)
 import qualified Language.PureScript.Constants as C
 import Language.PureScript.CoreImp.AST
 import Language.PureScript.AST.SourcePos (SourceSpan)
 import Safe (headDef, tailSafe)
-
-import Debug.Trace
 
 -- | Eliminate tail calls
 tco :: AST -> AST
@@ -39,7 +36,7 @@ tco = flip evalState 0 . everywhereTopDownM convert where
   convert :: AST -> State Int AST
   convert (VariableIntroduction ss name (Just fn@Function {}))
       | Just trFns <- findTailRecursiveFns name arity body'
-      = trace ("TCO APPLIED FOR " <> show name) $ VariableIntroduction ss name . Just . replace <$> toLoop trFns name arity outerArgs innerArgs body'
+      = VariableIntroduction ss name . Just . replace <$> toLoop trFns name arity outerArgs innerArgs body'
     where
       innerArgs = headDef [] argss
       outerArgs = concat . reverse $ tailSafe argss
@@ -47,7 +44,6 @@ tco = flip evalState 0 . everywhereTopDownM convert where
       -- ^ this is the number of calls, not the number of arguments, if there's
       -- ever a practical difference.
       (argss, body', replace) = topCollectAllFunctionArgs [] id fn
-  convert js@(VariableIntroduction ss name (Just fn@Function {})) = trace ("NO TCO FOR " <> show name) $ pure js
   convert js = pure js
 
   rewriteFunctionsWith :: ([Text] -> [Text]) -> [[Text]] -> (AST -> AST) -> AST -> ([[Text]], AST, AST -> AST)
@@ -87,7 +83,7 @@ tco = flip evalState 0 . everywhereTopDownM convert where
       case S.minView required of
         Just (r, required') -> do
           required'' <- findTailPositionDeps r js
-          go (S.insert (fst r) known, required' <> (S.filter (not . (`S.member` known) . fst) required''))
+          go (S.insert (fst r) known, required' <> S.filter (not . (`S.member` known) . fst) required'')
         Nothing ->
           pure known
 
@@ -99,8 +95,7 @@ tco = flip evalState 0 . everywhereTopDownM convert where
   findTailPositionDeps (ident, arity) js = anyInTailPosition js where
 
     anyInTailPosition :: AST -> Maybe (S.Set (Text, Int))
-    anyInTailPosition (Return _ expr) | isSelfCall ident arity expr =
-                                          trace "FOUND SOME DUDE" $  pure S.empty
+    anyInTailPosition (Return _ expr) | isSelfCall ident arity expr = pure S.empty
     anyInTailPosition (While _ _ body)
       = anyInTailPosition body
     anyInTailPosition (For _ _ _ _ body)
@@ -108,7 +103,7 @@ tco = flip evalState 0 . everywhereTopDownM convert where
     anyInTailPosition (ForIn _ _ _ body)
       = anyInTailPosition body
     anyInTailPosition (IfElse _ _ body el)
-      = (anyInTailPosition body) <> (foldMap anyInTailPosition el)
+      = anyInTailPosition body <> foldMap anyInTailPosition el
     anyInTailPosition (Block _ body)
       = foldMap anyInTailPosition body
     anyInTailPosition (VariableIntroduction _ ident' (Just js1))
@@ -162,7 +157,7 @@ tco = flip evalState 0 . everywhereTopDownM convert where
         , Function rootSS (Just tcoLoop) (outerArgs ++ innerArgs) (Block rootSS [loopify js])
         , While rootSS (Unary rootSS Not (Var rootSS tcoDone))
             (Block rootSS
-              [(Assignment rootSS (Var rootSS tcoResult) (App rootSS (Var rootSS tcoLoop) ((map (Var rootSS . tcoVar) outerArgs) ++ (map (Var rootSS . copyVar) innerArgs))))])
+              [Assignment rootSS (Var rootSS tcoResult) (App rootSS (Var rootSS tcoLoop) (map (Var rootSS . tcoVar) outerArgs ++ map (Var rootSS . copyVar) innerArgs))])
         , Return rootSS (Var rootSS tcoResult)
         ]
     where
@@ -184,6 +179,3 @@ tco = flip evalState 0 . everywhereTopDownM convert where
   isSelfCall ident 1 (App _ (Var _ ident') _) = ident == ident'
   isSelfCall ident arity (App _ fn _) = isSelfCall ident (arity - 1) fn
   isSelfCall _ _ _ = False
-
-foldMapA :: (Applicative f, Monoid w, Foldable t) => (a -> f w) -> t a -> f w
-foldMapA f = foldr (liftA2 mappend . f) (pure mempty)
