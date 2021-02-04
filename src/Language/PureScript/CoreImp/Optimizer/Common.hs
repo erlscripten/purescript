@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- | Common functions used by the various optimizer phases
 module Language.PureScript.CoreImp.Optimizer.Common where
 
@@ -11,21 +12,25 @@ import Language.PureScript.Crash
 import Language.PureScript.CoreImp.AST
 import Language.PureScript.PSString (PSString)
 
+{-# INLINE applyAll #-}
 applyAll :: [a -> a] -> a -> a
-applyAll = foldl' (.) id
+applyAll l x = foldl' (flip ($!)) x l
 
+{-# INLINE replaceIdent #-}
 replaceIdent :: Text -> AST -> AST -> AST
 replaceIdent var1 js = everywhere replace
   where
   replace (Var _ var2) | var1 == var2 = js
   replace other = other
 
+{-# INLINE replaceIdents #-}
 replaceIdents :: [(Text, AST)] -> AST -> AST
 replaceIdents vars = everywhere replace
   where
   replace v@(Var _ var) = fromMaybe v $ lookup var vars
   replace other = other
 
+{-# INLINE isReassigned #-}
 isReassigned :: Text -> AST -> Bool
 isReassigned var1 = everything (||) check
   where
@@ -37,12 +42,14 @@ isReassigned var1 = everything (||) check
   check (ForIn _ arg _ _) | var1 == arg = True
   check _ = False
 
+{-# INLINE isRebound #-}
 isRebound :: AST -> AST -> Bool
 isRebound js d = any (\v -> isReassigned v d || isUpdated v d) (everything (++) variablesOf js)
   where
   variablesOf (Var _ var) = [var]
   variablesOf _ = []
 
+{-# INLINE isUsed #-}
 isUsed :: Text -> AST -> Bool
 isUsed var1 = everything (||) check
   where
@@ -51,11 +58,13 @@ isUsed var1 = everything (||) check
   check (Assignment _ target _) | var1 == targetVariable target = True
   check _ = False
 
+{-# INLINE targetVariable #-}
 targetVariable :: AST -> Text
 targetVariable (Var _ var) = var
 targetVariable (Indexer _ _ tgt) = targetVariable tgt
 targetVariable _ = internalError "Invalid argument to targetVariable"
 
+{-# INLINE isUpdated #-}
 isUpdated :: Text -> AST -> Bool
 isUpdated var1 = everything (||) check
   where
@@ -63,14 +72,17 @@ isUpdated var1 = everything (||) check
   check (Assignment _ target _) | var1 == targetVariable target = True
   check _ = False
 
+{-# INLINE removeFromBlock #-}
 removeFromBlock :: ([AST] -> [AST]) -> AST -> AST
 removeFromBlock go (Block ss sts) = Block ss (go sts)
 removeFromBlock _  js = js
 
+{-# INLINE isDict #-}
 isDict :: (Text, PSString) -> AST -> Bool
 isDict (moduleName, dictName) (Indexer _ (StringLiteral _ x) (Var _ y)) =
   x == dictName && y == moduleName
 isDict _ _ = False
 
+{-# INLINE isDict' #-}
 isDict' :: [(Text, PSString)] -> AST -> Bool
 isDict' xs js = any (`isDict` js) xs

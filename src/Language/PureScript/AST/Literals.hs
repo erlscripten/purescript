@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- |
 -- The core functional representation for literal values.
 --

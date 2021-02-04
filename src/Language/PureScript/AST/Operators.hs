@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 {-# LANGUAGE DeriveGeneric #-}
 -- |
 -- Operators fixity and associativity

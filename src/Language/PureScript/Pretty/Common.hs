@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE Strict #-}
 
 -- |
 -- Common pretty-printing utility functions
@@ -9,7 +10,7 @@ import Prelude.Compat
 
 import Control.Monad.State (StateT, modify, get)
 
-import Data.List (elemIndices, intersperse)
+import Data.List (elemIndices, intersperse, foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -54,14 +55,17 @@ newtype StrPos = StrPos (SourcePos, Text, [SMap])
 -- the length of the left.
 --
 instance Semigroup StrPos where
+  {-# INLINE (<>) #-}
   StrPos (a,b,c) <> StrPos (a',b',c') = StrPos (a `addPos` a', b <> b', c ++ (bumpPos a <$> c'))
 
 instance Monoid StrPos where
+  {-# INLINE mempty #-}
   mempty = StrPos (SourcePos 0 0, "", [])
 
+  {-# INLINE mconcat #-}
   mconcat ms =
     let s' = foldMap (\(StrPos(_, s, _)) -> s) ms
-        (p, maps) = foldl plus (SourcePos 0 0, []) ms
+        (p, maps) = foldl' plus (SourcePos 0 0, []) ms
     in
         StrPos (p, s', concat $ reverse maps)
     where
@@ -108,7 +112,7 @@ addPos (SourcePos n m) (SourcePos 0 m') = SourcePos n (m+m')
 addPos (SourcePos n _) (SourcePos n' m') = SourcePos (n+n') m'
 
 
-data PrinterState = PrinterState { indent :: Int }
+newtype PrinterState = PrinterState { indent :: Int }
 
 emptyPrinterState :: PrinterState
 emptyPrinterState = PrinterState { indent = 0 }
