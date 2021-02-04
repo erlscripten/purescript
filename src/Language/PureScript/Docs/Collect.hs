@@ -105,6 +105,8 @@ compileForDocs outputDir inputFiles = do
   renderProgressMessage :: P.ProgressMessage -> String
   renderProgressMessage (P.CompilingModule mn) =
     "Compiling documentation for " ++ T.unpack (P.runModuleName mn)
+  renderProgressMessage msg =
+    "Progress: " ++ show msg
 
   testOptions :: P.Options
   testOptions = P.defaultOptions { P.optionsCodegenTargets = Set.singleton P.Docs }

@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 -- | Data types for the imperative core AST
 module Language.PureScript.CoreImp.AST where
 
@@ -6,6 +7,7 @@ import Prelude.Compat
 import Control.Monad ((>=>))
 import Control.Monad.Identity (Identity(..), runIdentity)
 import Data.Text (Text)
+import Data.List(foldl')
 
 import Language.PureScript.AST (SourceSpan(..))
 import Language.PureScript.Comments
@@ -204,12 +206,12 @@ everything :: (r -> r -> r) -> (AST -> r) -> AST -> r
 everything (<>.) f = go where
   go j@(Unary _ _ j1) = f j <>. go j1
   go j@(Binary _ _ j1 j2) = f j <>. go j1 <>. go j2
-  go j@(ArrayLiteral _ js) = foldl (<>.) (f j) (map go js)
+  go j@(ArrayLiteral _ js) = foldl' (<>.) (f j) (map go js)
   go j@(Indexer _ j1 j2) = f j <>. go j1 <>. go j2
-  go j@(ObjectLiteral _ js) = foldl (<>.) (f j) (map (go . snd) js)
+  go j@(ObjectLiteral _ js) = foldl' (<>.) (f j) (map (go . snd) js)
   go j@(Function _ _ _ j1) = f j <>. go j1
-  go j@(App _ j1 js) = foldl (<>.) (f j <>. go j1) (map go js)
-  go j@(Block _ js) = foldl (<>.) (f j) (map go js)
+  go j@(App _ j1 js) = foldl' (<>.) (f j <>. go j1) (map go js)
+  go j@(Block _ js) = foldl' (<>.) (f j) (map go js)
   go j@(VariableIntroduction _ _ (Just j1)) = f j <>. go j1
   go j@(Assignment _ j1 j2) = f j <>. go j1 <>. go j2
   go j@(While _ j1 j2) = f j <>. go j1 <>. go j2
