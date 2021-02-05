@@ -231,6 +231,7 @@ everything (<>.) f = go where
   go j@(App _ j1 js) = foldl' (<>.) (f j <>. go j1) (map go js)
   go j@(Block _ js) = foldl' (<>.) (f j) (map go js)
   go j@(VariableIntroduction _ _ (Just j1)) = f j <>. go j1
+  go j@(VariableLetIntroduction _ _ (Just j1)) = f j <>. go j1
   go j@(Assignment _ j1 j2) = f j <>. go j1 <>. go j2
   go j@(While _ _ j1 j2) = f j <>. go j1 <>. go j2
   go j@(For _ _ j1 j2 j3) = f j <>. go j1 <>. go j2 <>. go j3

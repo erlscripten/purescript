@@ -219,22 +219,16 @@ desugarGuardedExprs ss (Case scrut alternatives) =
                         -> m Expr
     desugarAltOutOfLine alt_binder rem_guarded rem_alts mk_body
       | Just rem_case <- mkCaseOfRemainingGuardsAndAlts = do
-
-        desugared     <- desugarGuardedExprs ss rem_case
-        rem_case_id   <- freshIdent'
-        unused_binder <- freshIdent'
-
+        desugared <- desugarGuardedExprs ss rem_case
         let
-          goto_rem_case :: Expr
-          goto_rem_case = Var ss (Qualified Nothing rem_case_id)
-            `App` Literal ss (BooleanLiteral True)
           alt_fail :: Int -> [CaseAlternative]
-          alt_fail n = [CaseAlternative (replicate n NullBinder) [MkUnguarded goto_rem_case]]
+          alt_fail n = [CaseAlternative (replicate n NullBinder) [MkUnguarded desugared]]
 
-        pure $ Let FromLet [
-          ValueDecl (ss, []) rem_case_id Private []
-            [MkUnguarded (Abs (VarBinder ss unused_binder) desugared)]
-          ] (mk_body alt_fail)
+        pure $ mk_body alt_fail
+        -- pure $ Let FromLet [
+        --   ValueDecl (ss, []) rem_case_id Private []
+        --     [MkUnguarded (Abs (VarBinder ss unused_binder) desugared)]
+        --   ] (mk_body alt_fail)
 
       | otherwise
       = pure $ mk_body (const [])
