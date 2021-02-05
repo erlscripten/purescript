@@ -11,12 +11,15 @@ import qualified Data.Set as S
 import Data.Text (Text, pack)
 import qualified Language.PureScript.Constants as C
 import Language.PureScript.CoreImp.AST
-import Language.PureScript.AST.SourcePos (SourceSpan)
 import Safe (headDef, tailSafe)
 
 -- | Eliminate tail calls
 tco :: AST -> AST
 tco = flip evalState 0 . everywhereTopDownM convert where
+  uniq :: Text -> State Int Text
+  uniq v = get <&> \count -> v <>
+    if count == 0 then "" else pack . show $ count
+
   tcoVar :: Text -> Text
   tcoVar arg = "$tco_var_" <> arg
 
@@ -24,11 +27,10 @@ tco = flip evalState 0 . everywhereTopDownM convert where
   copyVar arg = "$copy_" <> arg
 
   tcoDoneM :: State Int Text
-  tcoDoneM = get <&> \count -> "$tco_done" <>
-    if count == 0 then "" else pack . show $ count
+  tcoDoneM = uniq "$tco_done"
 
-  tcoLoop :: Text
-  tcoLoop = "$tco_loop"
+  tcoLoopM :: State Int Text
+  tcoLoopM = uniq "$tco_loop"
 
   tcoResult :: Text
   tcoResult = "$tco_result"
@@ -96,7 +98,7 @@ tco = flip evalState 0 . everywhereTopDownM convert where
 
     anyInTailPosition :: AST -> Maybe (S.Set (Text, Int))
     anyInTailPosition (Return _ expr) | isSelfCall ident arity expr = pure S.empty
-    anyInTailPosition (While _ _ body)
+    anyInTailPosition (While _ _ _ body)
       = anyInTailPosition body
     anyInTailPosition (For _ _ _ _ body)
       = anyInTailPosition body
@@ -119,12 +121,10 @@ tco = flip evalState 0 . everywhereTopDownM convert where
   toLoop :: S.Set Text -> Text -> Int -> [Text] -> [Text] -> AST -> State Int AST
   toLoop trFns ident arity outerArgs innerArgs js = do
     tcoDone <- tcoDoneM
+    tcoLoop <- tcoLoopM
     modify (+ 1)
 
     let
-      markDone :: Maybe SourceSpan -> AST
-      markDone ss = Assignment ss (Var ss tcoDone) (BooleanLiteral ss True)
-
       loopify :: AST -> AST
       loopify (Return ss ret)
         | isSelfCall ident arity ret =
@@ -136,28 +136,31 @@ tco = flip evalState 0 . everywhereTopDownM convert where
                 Assignment ss (Var ss (tcoVar arg)) val) allArgumentValues outerArgs
               ++ zipWith (\val arg ->
                 Assignment ss (Var ss (copyVar arg)) val) (drop (length outerArgs) allArgumentValues) innerArgs
-              ++ [ ReturnNoResult ss ]
+              ++ [Continue ss (Just tcoLoop)]
         | isIndirectSelfCall ret = Return ss ret
-        | otherwise = Block ss [ markDone ss, Return ss ret ]
-      loopify (ReturnNoResult ss) = Block ss [ markDone ss, ReturnNoResult ss ]
-      loopify (While ss cond body) = While ss cond (loopify body)
+        | otherwise = Block ss
+          [ Assignment ss (Var rootSS tcoResult) ret
+          , Break ss (Just tcoLoop)
+          ]
+      loopify (While ss name cond body) = While ss name cond (loopify body)
       loopify (For ss i js1 js2 body) = For ss i js1 js2 (loopify body)
       loopify (ForIn ss i js1 body) = ForIn ss i js1 (loopify body)
       loopify (IfElse ss cond body el) = IfElse ss cond (loopify body) (fmap loopify el)
       loopify (Block ss body) = Block ss (map loopify body)
-      loopify (VariableIntroduction ss f (Just fn@(Function _ Nothing _ _)))
-        | (_, body, replace) <- innerCollectAllFunctionArgs [] id fn
-        , f `S.member` trFns = VariableIntroduction ss f (Just (replace (loopify body)))
+      -- loopify (VariableIntroduction ss f (Just fn@(Function _ Nothing _ _)))
+      --   | (_, body, replace) <- innerCollectAllFunctionArgs [] id fn
+      --   , f `S.member` trFns = VariableIntroduction ss f (Just (replace (loopify body)))
       loopify other = other
 
     pure $ Block rootSS $
         map (\arg -> VariableIntroduction rootSS (tcoVar arg) (Just (Var rootSS (copyVar arg)))) outerArgs ++
-        [ VariableIntroduction rootSS tcoDone (Just (BooleanLiteral rootSS False))
-        , VariableIntroduction rootSS tcoResult Nothing
-        , Function rootSS (Just tcoLoop) (outerArgs ++ innerArgs) (Block rootSS [loopify js])
-        , While rootSS (Unary rootSS Not (Var rootSS tcoDone))
-            (Block rootSS
-              [Assignment rootSS (Var rootSS tcoResult) (App rootSS (Var rootSS tcoLoop) (map (Var rootSS . tcoVar) outerArgs ++ map (Var rootSS . copyVar) innerArgs))])
+        [ VariableIntroduction rootSS tcoResult Nothing
+        , While rootSS (Just tcoLoop) (Unary rootSS Not (Var rootSS tcoDone))
+          (Block rootSS $
+            map (\v -> VariableLetIntroduction rootSS v (Just . Var rootSS . tcoVar $ v)) outerArgs ++
+            map (\v -> VariableLetIntroduction rootSS v (Just . Var rootSS . copyVar $ v)) innerArgs ++
+            [loopify js]
+          )
         , Return rootSS (Var rootSS tcoResult)
         ]
     where

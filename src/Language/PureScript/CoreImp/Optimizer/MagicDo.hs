@@ -57,10 +57,10 @@ magicDo effectModule C.EffectDictionaries{..} = everywhereTopDown convert
     Function s1 (Just fnName) [] $ Block s2 (VariableIntroduction s2 arg (Just (App s2 m [])) : map applyReturns js)
   -- Desugar untilE
   convert (App s1 (App _ f [arg]) []) | isEffFunc edUntil f =
-    App s1 (Function s1 Nothing [] (Block s1 [ While s1 (Unary s1 Not (App s1 arg [])) (Block s1 []), Return s1 $ ObjectLiteral s1 []])) []
+    App s1 (Function s1 Nothing [] (Block s1 [ While s1 Nothing (Unary s1 Not (App s1 arg [])) (Block s1 []), Return s1 $ ObjectLiteral s1 []])) []
   -- Desugar whileE
   convert (App _ (App _ (App s1 f [arg1]) [arg2]) []) | isEffFunc edWhile f =
-    App s1 (Function s1 Nothing [] (Block s1 [ While s1 (App s1 arg1 []) (Block s1 [ App s1 arg2 [] ]), Return s1 $ ObjectLiteral s1 []])) []
+    App s1 (Function s1 Nothing [] (Block s1 [ While s1 Nothing (App s1 arg1 []) (Block s1 [ App s1 arg2 [] ]), Return s1 $ ObjectLiteral s1 []])) []
   -- Inline __do returns
   convert (Return _ (App _ (Function _ (Just ident) [] body) [])) | ident == fnName = body
   -- Inline double applications
@@ -92,7 +92,7 @@ magicDo effectModule C.EffectDictionaries{..} = everywhereTopDown convert
   applyReturns :: AST -> AST
   applyReturns (Return ss ret) = Return ss (App ss ret [])
   applyReturns (Block ss jss) = Block ss (map applyReturns jss)
-  applyReturns (While ss cond js) = While ss cond (applyReturns js)
+  applyReturns (While ss name cond js) = While ss name cond (applyReturns js)
   applyReturns (For ss v lo hi js) = For ss v lo hi (applyReturns js)
   applyReturns (ForIn ss v xs js) = ForIn ss v xs (applyReturns js)
   applyReturns (IfElse ss cond t f) = IfElse ss cond (applyReturns t) (applyReturns `fmap` f)

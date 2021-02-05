@@ -74,14 +74,22 @@ data AST
   -- ^ A block of expressions in braces
   | VariableIntroduction (Maybe SourceSpan) Text (Maybe AST)
   -- ^ A variable introduction and optional initialization
+  | VariableLetIntroduction (Maybe SourceSpan) Text (Maybe AST)
+  -- ^ A let variable introduction and optional initialization
   | Assignment (Maybe SourceSpan) AST AST
   -- ^ A variable assignment
-  | While (Maybe SourceSpan) AST AST
+  | While (Maybe SourceSpan) (Maybe Text) AST AST
   -- ^ While loop
   | For (Maybe SourceSpan) Text AST AST AST
   -- ^ For loop
   | ForIn (Maybe SourceSpan) Text AST AST
   -- ^ ForIn loop
+  | Break (Maybe SourceSpan) (Maybe Text)
+  -- ^ Loop break
+  | Continue (Maybe SourceSpan) (Maybe Text)
+  -- ^ Loop continue
+  | Label (Maybe SourceSpan) Text  -- TODO: add as a loop parameter instead of a separate instruction
+  -- ^ Loop label.
   | IfElse (Maybe SourceSpan) AST AST (Maybe AST)
   -- ^ If-then-else statement
   | Return (Maybe SourceSpan) AST
@@ -115,10 +123,14 @@ withSourceSpan withSpan = go where
   go (Var _ s) = Var ss s
   go (Block _ js) = Block ss js
   go (VariableIntroduction _ name j) = VariableIntroduction ss name j
+  go (VariableLetIntroduction _ name j) = VariableLetIntroduction ss name j
   go (Assignment _ j1 j2) = Assignment ss j1 j2
-  go (While _ j1 j2) = While ss j1 j2
+  go (While _ name j1 j2) = While ss name j1 j2
   go (For _ name j1 j2 j3) = For ss name j1 j2 j3
   go (ForIn _ name j1 j2) = ForIn ss name j1 j2
+  go (Break _ name) = Break ss name
+  go (Continue _ name) = Continue ss name
+  go (Label _ name) = Label ss name
   go (IfElse _ j1 j2 j3) = IfElse ss j1 j2 j3
   go (Return _ js) = Return ss js
   go (ReturnNoResult _) = ReturnNoResult ss
@@ -142,10 +154,14 @@ getSourceSpan = go where
   go (Var ss _) = ss
   go (Block ss _) = ss
   go (VariableIntroduction ss _ _) = ss
+  go (VariableLetIntroduction ss _ _) = ss
   go (Assignment ss _ _) = ss
-  go (While ss _ _) = ss
+  go (While ss _ _ _) = ss
   go (For ss _ _ _ _) = ss
   go (ForIn ss _ _ _) = ss
+  go (Break ss _) = ss
+  go (Continue ss _) = ss
+  go (Label ss _) = ss
   go (IfElse ss _ _ _) = ss
   go (Return ss _) = ss
   go (ReturnNoResult ss) = ss
@@ -165,8 +181,9 @@ everywhere f = go where
   go (App ss j js) = f (App ss (go j) (map go js))
   go (Block ss js) = f (Block ss (map go js))
   go (VariableIntroduction ss name j) = f (VariableIntroduction ss name (fmap go j))
+  go (VariableLetIntroduction ss name j) = f (VariableLetIntroduction ss name (fmap go j))
   go (Assignment ss j1 j2) = f (Assignment ss (go j1) (go j2))
-  go (While ss j1 j2) = f (While ss (go j1) (go j2))
+  go (While ss name j1 j2) = f (While ss name (go j1) (go j2))
   go (For ss name j1 j2 j3) = f (For ss name (go j1) (go j2) (go j3))
   go (ForIn ss name j1 j2) = f (ForIn ss name (go j1) (go j2))
   go (IfElse ss j1 j2 j3) = f (IfElse ss (go j1) (go j2) (fmap go j3))
@@ -191,8 +208,9 @@ everywhereTopDownM f = f >=> go where
   go (App ss j js) = App ss <$> f' j <*> traverse f' js
   go (Block ss js) = Block ss <$> traverse f' js
   go (VariableIntroduction ss name j) = VariableIntroduction ss name <$> traverse f' j
+  go (VariableLetIntroduction ss name j) = VariableLetIntroduction ss name <$> traverse f' j
   go (Assignment ss j1 j2) = Assignment ss <$> f' j1 <*> f' j2
-  go (While ss j1 j2) = While ss <$> f' j1 <*> f' j2
+  go (While ss name j1 j2) = While ss name <$> f' j1 <*> f' j2
   go (For ss name j1 j2 j3) = For ss name <$> f' j1 <*> f' j2 <*> f' j3
   go (ForIn ss name j1 j2) = ForIn ss name <$> f' j1 <*> f' j2
   go (IfElse ss j1 j2 j3) = IfElse ss <$> f' j1 <*> f' j2 <*> traverse f' j3
@@ -214,7 +232,7 @@ everything (<>.) f = go where
   go j@(Block _ js) = foldl' (<>.) (f j) (map go js)
   go j@(VariableIntroduction _ _ (Just j1)) = f j <>. go j1
   go j@(Assignment _ j1 j2) = f j <>. go j1 <>. go j2
-  go j@(While _ j1 j2) = f j <>. go j1 <>. go j2
+  go j@(While _ _ j1 j2) = f j <>. go j1 <>. go j2
   go j@(For _ _ j1 j2 j3) = f j <>. go j1 <>. go j2 <>. go j3
   go j@(ForIn _ _ j1 j2) = f j <>. go j1 <>. go j2
   go j@(IfElse _ j1 j2 Nothing) = f j <>. go j1 <>. go j2

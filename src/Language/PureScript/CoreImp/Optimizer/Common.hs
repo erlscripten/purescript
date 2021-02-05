@@ -37,6 +37,7 @@ isReassigned var1 = everything (||) check
   check :: AST -> Bool
   check (Function _ _ args _) | var1 `elem` args = True
   check (VariableIntroduction _ arg _) | var1 == arg = True
+  check (VariableLetIntroduction _ arg _) | var1 == arg = True
   check (Assignment _ (Var _ arg) _) | var1 == arg = True
   check (For _ arg _ _ _) | var1 == arg = True
   check (ForIn _ arg _ _) | var1 == arg = True

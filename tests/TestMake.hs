@@ -182,8 +182,10 @@ compileWithResult input = do
     foreigns <- P.inferForeignModules filePathMap
     let makeActions =
           (P.buildMakeActions modulesDir filePathMap foreigns True)
-            { P.progress = \(P.CompilingModule mn) ->
-                liftIO $ modifyMVar_ recompiled (return . Set.insert mn)
+            { P.progress = \p -> case p of
+                (P.CompilingModule mn) ->
+                  liftIO $ modifyMVar_ recompiled (return . Set.insert mn)
+                _ -> return ()
             }
     P.make makeActions (map snd ms)
 

@@ -325,7 +325,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     jss <- forM binders $ \(CaseAlternative bs result) -> do
       ret <- guardsToJs result
       go valNames ret bs
-    return $ AST.App Nothing (AST.Function Nothing Nothing [] (AST.Block Nothing (assignments ++ concat jss ++ [AST.Throw Nothing $ failedPatternError valNames])))
+    return $ AST.App Nothing (AST.Function Nothing Nothing [] (AST.Block Nothing (AST.Label Nothing "xdd" :  assignments ++ concat jss ++ [AST.Throw Nothing $ failedPatternError valNames])))
                    []
     where
       go :: [Text] -> [AST] -> [Binder Ann] -> m [AST]

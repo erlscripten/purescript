@@ -73,13 +73,18 @@ literals = mkPattern' match'
     [ return $ emit $ "var " <> ident
     , maybe (return mempty) (fmap (emit " = " <>) . prettyPrintJS') value
     ]
+  match (VariableLetIntroduction _ ident value) = mconcat <$> sequence
+    [ return $ emit $ "let " <> ident
+    , maybe (return mempty) (fmap (emit " = " <>) . prettyPrintJS') value
+    ]
   match (Assignment _ target value) = mconcat <$> sequence
     [ prettyPrintJS' target
     , return $ emit " = "
     , prettyPrintJS' value
     ]
-  match (While _ cond sts) = mconcat <$> sequence
-    [ return $ emit "while ("
+  match (While _ name cond sts) = mconcat <$> sequence
+    [ return $ maybe mempty (emit . (<> ": ")) name
+    , return $ emit "while ("
     , prettyPrintJS' cond
     , return $ emit ") "
     , prettyPrintJS' sts
@@ -98,6 +103,8 @@ literals = mkPattern' match'
     , return $ emit ") "
     , prettyPrintJS' sts
     ]
+  match (Break _ name) = return $ emit "break" <> maybe mempty (emit . (" " <>)) name
+  match (Continue _ name) = return $ emit "continue" <> maybe mempty (emit . (" " <>)) name
   match (IfElse _ cond thens elses) = mconcat <$> sequence
     [ return $ emit "if ("
     , prettyPrintJS' cond
@@ -122,7 +129,7 @@ literals = mkPattern' match'
   match _ = mzero
 
   comment :: (Emit gen) => Comment -> StateT PrinterState Maybe gen
-  comment (LineComment com) = fmap mconcat $ sequence $
+  comment (LineComment com) = fmap mconcat $ sequence
     [ currentIndent
     , return $ emit "//" <> emit com <> emit "\n"
     ]

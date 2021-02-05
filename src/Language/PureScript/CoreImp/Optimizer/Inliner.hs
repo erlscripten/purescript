@@ -80,6 +80,9 @@ inlineVariables = everywhere $ removeFromBlock go
   go (VariableIntroduction _ var (Just js) : sts)
     | shouldInline js && not (any (isReassigned var) sts) && not (any (isRebound js) sts) && not (any (isUpdated var) sts) =
       go (map (replaceIdent var js) sts)
+  go (VariableLetIntroduction _ var (Just js) : sts)
+    | shouldInline js && not (any (isReassigned var) sts) && not (any (isRebound js) sts) && not (any (isUpdated var) sts) =
+      go (map (replaceIdent var js) sts)
   go (s:sts) = s : go sts
 
 inlineCommonValues :: AST -> AST
