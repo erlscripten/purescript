@@ -210,7 +210,7 @@ buildMakeActions outputDir filePathMap foreigns usePrefix =
 
   getOutputTimestamp :: ModuleName -> Make (Maybe UTCTime)
   getOutputTimestamp mn = do
-    codegenTargets <- asks optionsCodegenTargets
+    codegenTargets <- asks $ optionsCodegenTargets . fst
     let outputPaths = [outputFilename mn externsFileName] <> fmap (targetFilename mn) (S.toList codegenTargets)
     timestamps <- traverse getTimestampMaybe outputPaths
     pure $ fmap minimum . NEL.nonEmpty =<< sequence timestamps
@@ -222,7 +222,7 @@ buildMakeActions outputDir filePathMap foreigns usePrefix =
 
   outputPrimDocs :: Make ()
   outputPrimDocs = do
-    codegenTargets <- asks optionsCodegenTargets
+    codegenTargets <- asks $ optionsCodegenTargets . fst
     when (S.member Docs codegenTargets) $ for_ Docs.Prim.primModules $ \docsMod@Docs.Module{..} ->
       writeJSONFile (outputFilename modName "docs.json") docsMod
 
@@ -230,7 +230,7 @@ buildMakeActions outputDir filePathMap foreigns usePrefix =
   codegen m docs exts = do
     let mn = CF.moduleName m
     lift $ writeCborFile (outputFilename mn externsFileName) exts
-    codegenTargets <- lift $ asks optionsCodegenTargets
+    codegenTargets <- lift $ asks $ optionsCodegenTargets . fst
     when (S.member CoreFn codegenTargets) $ do
       let coreFnFile = targetFilename mn CoreFn
           json = CFJ.moduleToJSON Paths.version m
@@ -261,7 +261,7 @@ buildMakeActions outputDir filePathMap foreigns usePrefix =
 
   ffiCodegen :: CF.Module CF.Ann -> Make ()
   ffiCodegen m = do
-    codegenTargets <- asks optionsCodegenTargets
+    codegenTargets <- asks $ optionsCodegenTargets . fst
     when (S.member JS codegenTargets) $ do
       let mn = CF.moduleName m
       case mn `M.lookup` foreigns of

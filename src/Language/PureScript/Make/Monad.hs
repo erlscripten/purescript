@@ -51,11 +51,12 @@ import qualified System.Directory as Directory
 import           System.FilePath (takeDirectory)
 import           System.IO.Error (tryIOError, isDoesNotExistError)
 import           System.IO.UTF8 (readUTF8FileT)
+import Data.Map as M
 
 -- | A monad for running make actions
 newtype Make a = Make
-  { unMake :: ReaderT Options (ExceptT MultipleErrors (Logger MultipleErrors)) a
-  } deriving (Functor, Applicative, Monad, MonadIO, MonadError MultipleErrors, MonadWriter MultipleErrors, MonadReader Options)
+  { unMake :: ReaderT (Options, M.Map Text Text) (ExceptT MultipleErrors (Logger MultipleErrors)) a
+  } deriving (Functor, Applicative, Monad, MonadIO, MonadError MultipleErrors, MonadWriter MultipleErrors, MonadReader (Options, M.Map Text Text))
 
 instance MonadBase IO Make where
   liftBase = liftIO
@@ -67,7 +68,7 @@ instance MonadBaseControl IO Make where
 
 -- | Execute a 'Make' monad, returning either errors, or the result of the compile plus any warnings.
 runMake :: Options -> Make a -> IO (Either MultipleErrors a, MultipleErrors)
-runMake opts = runLogger' . runExceptT . flip runReaderT opts . unMake
+runMake opts = runLogger' . runExceptT . flip runReaderT (opts, M.empty) . unMake
 
 -- | Run an 'IO' action in the 'Make' monad. The 'String' argument should
 -- describe what we were trying to do; it is used for rendering errors in the

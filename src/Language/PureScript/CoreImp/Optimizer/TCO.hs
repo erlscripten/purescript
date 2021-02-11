@@ -46,6 +46,16 @@ tco = flip evalState 0 . everywhereTopDownM convert where
       -- ^ this is the number of calls, not the number of arguments, if there's
       -- ever a practical difference.
       (argss, body', replace) = topCollectAllFunctionArgs [] id fn
+  convert (VariableLetIntroduction ss name (Just fn@Function {}))
+      | Just trFns <- findTailRecursiveFns name arity body'
+      = VariableLetIntroduction ss name . Just . replace <$> toLoop trFns name arity outerArgs innerArgs body'
+    where
+      innerArgs = headDef [] argss
+      outerArgs = concat . reverse $ tailSafe argss
+      arity = length argss
+      -- ^ this is the number of calls, not the number of arguments, if there's
+      -- ever a practical difference.
+      (argss, body', replace) = topCollectAllFunctionArgs [] id fn
   convert js = pure js
 
   rewriteFunctionsWith :: ([Text] -> [Text]) -> [[Text]] -> (AST -> AST) -> AST -> ([[Text]], AST, AST -> AST)
@@ -109,6 +119,11 @@ tco = flip evalState 0 . everywhereTopDownM convert where
     anyInTailPosition (Block _ body)
       = foldMap anyInTailPosition body
     anyInTailPosition (VariableIntroduction _ ident' (Just js1))
+      | Function _ Nothing _ _ <- js1
+      , (argss, body, _) <- innerCollectAllFunctionArgs [] id js1
+        = S.insert (ident', length argss) <$> anyInTailPosition body
+      | otherwise = empty
+    anyInTailPosition (VariableLetIntroduction _ ident' (Just js1))
       | Function _ Nothing _ _ <- js1
       , (argss, body, _) <- innerCollectAllFunctionArgs [] id js1
         = S.insert (ident', length argss) <$> anyInTailPosition body
