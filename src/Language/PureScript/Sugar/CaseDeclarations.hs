@@ -24,6 +24,7 @@ import Language.PureScript.Environment
 import Language.PureScript.Errors
 import Language.PureScript.Names
 import Language.PureScript.TypeChecker.Monad (guardWith)
+import qualified Language.PureScript.Constants as C
 
 -- |
 -- Replace all top-level binders in a module with case expressions.
@@ -186,18 +187,28 @@ desugarGuardedExprs ss (Case scrut alternatives) =
           --
         in Case scrut
             (CaseAlternative vb [MkUnguarded (desugarGuard gs e alt_fail)]
-              : (alt_fail' (length scrut)))
+              : alt_fail' (length scrut))
 
       return [ CaseAlternative scrut_nullbinder [MkUnguarded rhs]]
 
-    desugarGuard :: [Guard] -> Expr -> (Int ->[CaseAlternative]) -> Expr
+    pass :: Int -> [CaseAlternative]
+    pass n = [CaseAlternative (replicate n NullBinder) [MkUnguarded SafeCaseFail]]
+
+    desugarGuard :: [Guard] -> Expr -> (Int -> [CaseAlternative]) -> Expr
     desugarGuard [] e _ = e
+    desugarGuard (ConditionGuard c1 : ConditionGuard c2 : gs) e match_failed =
+      desugarGuard (ConditionGuard (
+                       App (App (App (Var ss (Qualified (Just (ModuleName "Data.HeytingAlgebra")) (Ident C.conj)))
+                                  (Var ss (Qualified (Just (ModuleName "Data.HeytingAlgebra")) (Ident C.heytingAlgebraBoolean))))
+                                 c1)
+                             c2)
+                     : gs) e match_failed
     desugarGuard (ConditionGuard c : gs) e match_failed
       | isTrueExpr c = desugarGuard gs e match_failed
       | otherwise =
         Case [c]
           (CaseAlternative [LiteralBinder ss (BooleanLiteral True)]
-            [MkUnguarded (desugarGuard gs e match_failed)] : match_failed 1)
+            [MkUnguarded (desugarGuard gs e pass)] : match_failed 1)
 
     desugarGuard (PatternGuard vb g : gs) e match_failed =
       Case [g]
@@ -206,7 +217,7 @@ desugarGuardedExprs ss (Case scrut alternatives) =
       where
         -- don't consider match_failed case if the binder is irrefutable
         match_failed' | isIrrefutable vb = []
-                      | otherwise        = match_failed 1
+                      | otherwise        = pass 1
 
     -- we generate a let-binding for the remaining guards
     -- and alternatives. A CaseAlternative is passed (or in

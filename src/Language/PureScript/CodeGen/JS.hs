@@ -269,8 +269,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
       Just name -> AST.Var Nothing name
   valueToJs' (Var _ q) = single $ varToJs q
   valueToJs' (Case (ss, _, _, _) values binders) = do
-    asts <- mapM valueToJs values
-    let (decls, vals) = unzip asts
+    (decls, vals) <- unzip <$> mapM valueToJs values
     (concat decls,) <$> bindersToJs ss binders vals
   valueToJs' (Let _ ds val) = do
     ds' <- concat <$> mapM bindToJs ds
@@ -302,6 +301,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     in single $ iife (properToJs ctor) [ constructor
                           , AST.Assignment Nothing (accessorString "create" (AST.Var Nothing (properToJs ctor))) createFn
                           ]
+  valueToJs' SafeCaseFail = return ([], AST.StringLiteral Nothing "skip")
 
   iife :: Text -> [AST] -> AST
   iife v exprs = AST.App Nothing (AST.Function Nothing Nothing [] (AST.Block Nothing $ exprs ++ [AST.Return Nothing $ AST.Var Nothing v])) []

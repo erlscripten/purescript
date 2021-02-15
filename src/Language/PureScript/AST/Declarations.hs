@@ -839,6 +839,10 @@ data Expr
   -- A value with source position information
   --
   | PositionedValue SourceSpan [Comment] Expr
+  -- |
+  -- Failing pattern match – order to try the next branch
+  ---
+  | SafeCaseFail
   deriving (Show)
 
 -- |

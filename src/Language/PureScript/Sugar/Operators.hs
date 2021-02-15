@@ -38,7 +38,7 @@ import Data.Traversable (for)
 import qualified Data.Map as M
 
 import qualified Language.PureScript.Constants as C
-
+import Debug.Trace
 -- |
 -- Removes unary negation operators and replaces them with calls to `negate`.
 --

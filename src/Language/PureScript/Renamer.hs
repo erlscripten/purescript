@@ -159,6 +159,7 @@ renameInValue (Case ann vs alts) =
   newScope $ Case ann <$> traverse renameInValue vs <*> traverse renameInCaseAlternative alts
 renameInValue (Let ann ds v) =
   newScope $ Let ann <$> traverse (renameInDecl False) ds <*> renameInValue v
+renameInValue SafeCaseFail = return SafeCaseFail
 
 -- |
 -- Renames within literals.

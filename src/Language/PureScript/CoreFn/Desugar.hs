@@ -117,6 +117,7 @@ moduleToCoreFn env (A.Module modSS coms mn decls (Just exps)) =
       (Accessor (ssAnn ss) (mkString $ runIdent ident) (Var (ssAnn ss) $ Qualified Nothing (Ident "dict")))
   exprToCoreFn _ com ty (A.PositionedValue ss com1 v) =
     exprToCoreFn ss (com ++ com1) ty v
+  exprToCoreFn _ _ _ A.SafeCaseFail = SafeCaseFail
   exprToCoreFn _ _ _ e =
     error $ "Unexpected value in exprToCoreFn mn: " ++ show e
 

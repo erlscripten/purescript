@@ -53,6 +53,10 @@ data Expr a
   -- A let binding
   --
   | Let a [Bind a] (Expr a)
+  -- |
+  -- Failing pattern match – order to try the next branch
+  ---
+  | SafeCaseFail
   deriving (Show, Functor)
 
 -- |
