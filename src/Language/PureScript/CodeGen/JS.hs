@@ -3,6 +3,7 @@
 module Language.PureScript.CodeGen.JS
   ( module AST
   , module Common
+  , Env(..)
   , moduleToJs
   ) where
 
@@ -48,13 +49,25 @@ import System.FilePath.Posix ((</>))
 import qualified Data.Map as Map
 import Data.Map(Map)
 
+data Env = Env
+  { options :: Options
+  , vars :: VarEnv
+  , continuation :: AST -> AST
+  }
+
+inLet :: MonadReader Env m => Text -> m a -> m a
+inLet var = local $ \env -> env{continuation = AST.Assignment Nothing (AST.Var Nothing var)}
+
+inFun :: MonadReader Env m => m a -> m a
+inFun = local $ \env -> env{continuation = AST.Return Nothing}
+
 type VarEnv = Map Text Text
 
 -- | Generate code in the simplified JavaScript intermediate representation for all declarations in a
 -- module.
 moduleToJs
   :: forall m
-   . (Monad m, MonadReader (Options, VarEnv) m, MonadSupply m, MonadError MultipleErrors m)
+   . (Monad m, MonadReader Env m, MonadSupply m, MonadError MultipleErrors m)
   => Module Ann
   -> Maybe AST
   -> m [AST]
@@ -64,7 +77,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     let mnLookup = renameImports usedNames imps
     let decls' = renameModules mnLookup decls
 
-    jsDecls <- mapM bindToJs decls'
+    jsDecls <- inFun $ mapM bindToJs decls'
     optimized <- traverse (traverse optimize) jsDecls
     let mnReverseLookup = M.fromList $ map (\(origName, (_, safeName)) -> (moduleNameToJs safeName, origName)) $ M.toList mnLookup
     let usedModuleNames = foldMap (foldMap (findModules mnReverseLookup)) optimized
@@ -72,7 +85,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
       . filter (`S.member` usedModuleNames)
       . (\\ (mn : C.primModules)) $ ordNub $ map snd imps
     F.traverse_ (F.traverse_ checkIntegers) optimized
-    comments <- asks (not . optionsNoComments . fst)
+    comments <- asks (not . optionsNoComments . options)
     let strict = AST.StringLiteral Nothing "use strict"
     let header = if comments && not (null coms) then AST.Comment Nothing coms strict else strict
     let foreign' = [AST.VariableIntroduction Nothing "$foreign" foreign_ | not $ null foreigns || isNothing foreign_]
@@ -164,7 +177,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   -- The main purpose of this function is to handle code generation for comments.
   nonRecToJS :: Ann -> Ident -> Expr Ann -> m ([AST], AST)
   nonRecToJS a i e@(extractAnn -> (_, com, _, _)) | not (null com) = do
-    withoutComment <- asks $ optionsNoComments . fst
+    withoutComment <- asks $ optionsNoComments . options
     if withoutComment
        then nonRecToJS a i (modifyAnn removeComments e)
        else AST.Comment Nothing com <$$> nonRecToJS a i (modifyAnn removeComments e)
@@ -174,7 +187,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
 
   withPos :: SourceSpan -> AST -> m AST
   withPos ss js = do
-    withSM <- asks (elem JSSourceMap . optionsCodegenTargets . fst)
+    withSM <- asks (elem JSSourceMap . optionsCodegenTargets . options)
     return $ if withSM
       then withSourceSpan ss js
       else js
@@ -236,7 +249,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     assign name = AST.Assignment Nothing (accessorString (mkString $ runIdent name) (AST.Var Nothing "this"))
                                (var name)
   valueToJs' (Abs _ arg val) = do
-    ret <- valueToJs val
+    ret <- inFun $ valueToJs val
     let jsArg = case arg of
                   UnusedIdent -> []
                   _           -> [identToJs arg]
@@ -268,7 +281,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
              else varToJs qi
   valueToJs' (Var (_, _, _, Just IsForeign) ident) =
     internalError $ "Encountered an unqualified reference to a foreign ident " ++ T.unpack (showQualified showIdent ident)
-  valueToJs' (Var _ q@(Qualified Nothing (Ident v))) = asks snd >>= \env ->
+  valueToJs' (Var _ q@(Qualified Nothing (Ident v))) = asks vars >>= \env ->
     single $ case M.lookup v env of
       Nothing -> varToJs q
       Just name -> AST.Var Nothing name
@@ -285,7 +298,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
       _ -> return (d, Nothing)
     let decls1 = map fst declsAndMap
         env1 = Map.fromList $ mapMaybe snd declsAndMap
-    (ds'', ret) <- local (second $ Map.union env1) $ valueToJs val
+    (ds'', ret) <- local (\env -> env{vars = Map.union env1 (vars env)}) $ valueToJs val
     return (decls1 ++ ds'', ret)
   valueToJs' (Constructor (_, _, _, Just IsNewtype) _ ctor _) =
     single $ AST.VariableLetIntroduction Nothing (properToJs ctor) (Just $
@@ -367,7 +380,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     jss <- forM alts $ \(CaseAlternative bs result) -> do
       ret <- guardsToJs result
       go valNames ret bs
-    return $ AST.Block Nothing Nothing (assignments ++ concat jss ++ [failedPatternError valNames])
+    return $ AST.Block Nothing Nothing (assignments ++ concat jss ++ [AST.Throw Nothing $ failedPatternError valNames])
     where
       go :: [Text] -> [AST] -> [Binder Ann] -> m [AST]
       go _ done [] = return done
@@ -402,10 +415,11 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
       guardSeqToJs :: Maybe Text -> [Guard Ann] -> Expr Ann -> m [AST]
       guardSeqToJs _ [] fin = do
         (ds, fin') <- valueToJs fin
+        finalCont <- asks continuation
         return $ case fin' of
           AST.Block _ Nothing bs -> ds ++ bs
           b@AST.Block{} -> ds ++ [b]
-          _ -> ds ++ [AST.Return Nothing fin']
+          _ -> ds ++ [finalCont fin']
       guardSeqToJs rollback (ConditionGuard e : rest) fin = do
          (ds, val) <- valueToJs e
          cont <- guardSeqToJs rollback rest fin

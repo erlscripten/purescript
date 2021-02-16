@@ -41,22 +41,23 @@ import qualified Data.ByteString as B
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Time.Clock (UTCTime)
+import           Data.Map as M
 import           Language.PureScript.AST
 import           Language.PureScript.Errors
 import           Language.PureScript.Externs (ExternsFile, externsIsCurrentVersion)
 import           Language.PureScript.Make.Cache (ContentHash, hash)
 import           Language.PureScript.Options
+import           Language.PureScript.CodeGen.JS(Env(..))
 import           System.Directory (createDirectoryIfMissing, getModificationTime)
 import qualified System.Directory as Directory
 import           System.FilePath (takeDirectory)
 import           System.IO.Error (tryIOError, isDoesNotExistError)
 import           System.IO.UTF8 (readUTF8FileT)
-import Data.Map as M
 
 -- | A monad for running make actions
 newtype Make a = Make
-  { unMake :: ReaderT (Options, M.Map Text Text) (ExceptT MultipleErrors (Logger MultipleErrors)) a
-  } deriving (Functor, Applicative, Monad, MonadIO, MonadError MultipleErrors, MonadWriter MultipleErrors, MonadReader (Options, M.Map Text Text))
+  { unMake :: ReaderT Env (ExceptT MultipleErrors (Logger MultipleErrors)) a
+  } deriving (Functor, Applicative, Monad, MonadIO, MonadError MultipleErrors, MonadWriter MultipleErrors, MonadReader Env)
 
 instance MonadBase IO Make where
   liftBase = liftIO
@@ -68,7 +69,7 @@ instance MonadBaseControl IO Make where
 
 -- | Execute a 'Make' monad, returning either errors, or the result of the compile plus any warnings.
 runMake :: Options -> Make a -> IO (Either MultipleErrors a, MultipleErrors)
-runMake opts = runLogger' . runExceptT . flip runReaderT (opts, M.empty) . unMake
+runMake opts = runLogger' . runExceptT . flip runReaderT Env{options = opts, vars = M.empty, continuation = id} . unMake
 
 -- | Run an 'IO' action in the 'Make' monad. The 'String' argument should
 -- describe what we were trying to do; it is used for rendering errors in the
