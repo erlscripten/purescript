@@ -46,26 +46,26 @@ magicDo effectModule C.EffectDictionaries{..} = everywhereTopDown convert
   -- Desugar pure
   convert (App _ (App _ pure' [val]) []) | isPure pure' = val
   -- Desugar discard
-  convert (App _ (App _ bind [m]) [Function s1 Nothing [] (Block s2 js)]) | isDiscard bind =
-    Function s1 (Just fnName) [] $ Block s2 (App s2 m [] : map applyReturns js )
+  convert (App _ (App _ bind [m]) [Function s1 Nothing [] (Block s2 n js)]) | isDiscard bind =
+    Function s1 (Just fnName) [] $ Block s2 n (App s2 m [] : map applyReturns js )
   -- Desugar bind to wildcard
-  convert (App _ (App _ bind [m]) [Function s1 Nothing [] (Block s2 js)])
+  convert (App _ (App _ bind [m]) [Function s1 Nothing [] (Block s2 n js)])
     | isBind bind =
-    Function s1 (Just fnName) [] $ Block s2 (App s2 m [] : map applyReturns js )
+    Function s1 (Just fnName) [] $ Block s2 n (App s2 m [] : map applyReturns js )
   -- Desugar bind
-  convert (App _ (App _ bind [m]) [Function s1 Nothing [arg] (Block s2 js)]) | isBind bind =
-    Function s1 (Just fnName) [] $ Block s2 (VariableIntroduction s2 arg (Just (App s2 m [])) : map applyReturns js)
+  convert (App _ (App _ bind [m]) [Function s1 Nothing [arg] (Block s2 n js)]) | isBind bind =
+    Function s1 (Just fnName) [] $ Block s2 n (VariableIntroduction s2 arg (Just (App s2 m [])) : map applyReturns js)
   -- Desugar untilE
   convert (App s1 (App _ f [arg]) []) | isEffFunc edUntil f =
-    App s1 (Function s1 Nothing [] (Block s1 [ While s1 Nothing (Unary s1 Not (App s1 arg [])) (Block s1 []), Return s1 $ ObjectLiteral s1 []])) []
+    App s1 (Function s1 Nothing [] (Block s1 Nothing [ While s1 Nothing (Unary s1 Not (App s1 arg [])) (Block s1 Nothing []), Return s1 $ ObjectLiteral s1 []])) []
   -- Desugar whileE
   convert (App _ (App _ (App s1 f [arg1]) [arg2]) []) | isEffFunc edWhile f =
-    App s1 (Function s1 Nothing [] (Block s1 [ While s1 Nothing (App s1 arg1 []) (Block s1 [ App s1 arg2 [] ]), Return s1 $ ObjectLiteral s1 []])) []
+    App s1 (Function s1 Nothing [] (Block s1 Nothing [ While s1 Nothing (App s1 arg1 []) (Block s1 Nothing [ App s1 arg2 [] ]), Return s1 $ ObjectLiteral s1 []])) []
   -- Inline __do returns
   convert (Return _ (App _ (Function _ (Just ident) [] body) [])) | ident == fnName = body
   -- Inline double applications
-  convert (App _ (App s1 (Function s2 Nothing [] (Block ss body)) []) []) =
-    App s1 (Function s2 Nothing [] (Block ss (applyReturns `fmap` body))) []
+  convert (App _ (App s1 (Function s2 Nothing [] (Block ss n body)) []) []) =
+    App s1 (Function s2 Nothing [] (Block ss n (applyReturns `fmap` body))) []
   convert other = other
   -- Check if an expression represents a monomorphic call to >>= for the Eff monad
   isBind (App _ fn [dict]) | isDict (effectModule, edBindDict) dict && isBindPoly fn = True
@@ -91,7 +91,7 @@ magicDo effectModule C.EffectDictionaries{..} = everywhereTopDown convert
 
   applyReturns :: AST -> AST
   applyReturns (Return ss ret) = Return ss (App ss ret [])
-  applyReturns (Block ss jss) = Block ss (map applyReturns jss)
+  applyReturns (Block ss n jss) = Block ss n (map applyReturns jss)
   applyReturns (While ss name cond js) = While ss name cond (applyReturns js)
   applyReturns (For ss v lo hi js) = For ss v lo hi (applyReturns js)
   applyReturns (ForIn ss v xs js) = ForIn ss v xs (applyReturns js)
@@ -116,7 +116,7 @@ inlineST = everywhere convertBlock
   -- or in a more aggressive way, turning wrappers into local variables depending on the
   -- agg(ressive) parameter.
   convert agg (App s1 f [arg]) | isSTFunc C.newSTRef f =
-   Function s1 Nothing [] (Block s1 [Return s1 $ if agg then arg else ObjectLiteral s1 [(mkString C.stRefValue, arg)]])
+   Function s1 Nothing [] (Block s1 Nothing [Return s1 $ if agg then arg else ObjectLiteral s1 [(mkString C.stRefValue, arg)]])
   convert agg (App _ (App s1 f [ref]) []) | isSTFunc C.readSTRef f =
     if agg then ref else Indexer s1 (StringLiteral s1 C.stRefValue) ref
   convert agg (App _ (App _ (App s1 f [arg]) [ref]) []) | isSTFunc C.writeSTRef f =

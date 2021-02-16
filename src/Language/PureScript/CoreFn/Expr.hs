@@ -53,10 +53,6 @@ data Expr a
   -- A let binding
   --
   | Let a [Bind a] (Expr a)
-  -- |
-  -- Failing pattern match – order to try the next branch
-  ---
-  | SafeCaseFail
   deriving (Show, Functor)
 
 -- |
@@ -73,9 +69,11 @@ data Bind a
   | Rec [((a, Ident), Expr a)] deriving (Show, Functor)
 
 -- |
--- A guard is just a boolean-valued expression that appears alongside a set of binders
+-- A guard is just a boolean-valued expression that appears along side a set of binders
 --
-type Guard a = Expr a
+data Guard a = ConditionGuard (Expr a)
+             | PatternGuard (Binder a) (Expr a)
+  deriving (Show, Functor)
 
 -- |
 -- An alternative in a case statement
@@ -88,14 +86,14 @@ data CaseAlternative a = CaseAlternative
     -- |
     -- The result expression or a collect of guarded expressions
     --
-  , caseAlternativeResult :: Either [(Guard a, Expr a)] (Expr a)
+  , caseAlternativeResult :: Either [([Guard a], Expr a)] (Expr a)
   } deriving (Show)
 
 instance Functor CaseAlternative where
 
   fmap f (CaseAlternative cabs car) = CaseAlternative
     (fmap (fmap f) cabs)
-    (either (Left . fmap (fmap f *** fmap f)) (Right . fmap f) car)
+    (either (Left . fmap (fmap (fmap f) *** fmap f)) (Right . fmap f) car)
 
 -- |
 -- Extract the annotation from a term
@@ -110,7 +108,6 @@ extractAnn (App a _ _) = a
 extractAnn (Var a _) = a
 extractAnn (Case a _ _) = a
 extractAnn (Let a _ _) = a
-
 
 -- |
 -- Modify the annotation on a term

@@ -159,7 +159,6 @@ renameInValue (Case ann vs alts) =
   newScope $ Case ann <$> traverse renameInValue vs <*> traverse renameInCaseAlternative alts
 renameInValue (Let ann ds v) =
   newScope $ Let ann <$> traverse (renameInDecl False) ds <*> renameInValue v
-renameInValue SafeCaseFail = return SafeCaseFail
 
 -- |
 -- Renames within literals.
@@ -175,7 +174,11 @@ renameInLiteral _ l = return l
 renameInCaseAlternative :: CaseAlternative Ann -> Rename (CaseAlternative Ann)
 renameInCaseAlternative (CaseAlternative bs v) = newScope $
   CaseAlternative <$> traverse renameInBinder bs
-                  <*> eitherM (traverse (pairM renameInValue renameInValue)) renameInValue v
+                  <*> eitherM (traverse (pairM (mapM renameInGuard) renameInValue)) renameInValue v
+
+renameInGuard :: Guard Ann -> Rename (Guard Ann)
+renameInGuard (ConditionGuard e) = ConditionGuard <$> renameInValue e
+renameInGuard (PatternGuard lv rv) = PatternGuard <$> renameInBinder lv <*> renameInValue rv
 
 -- |
 -- Renames within binders.

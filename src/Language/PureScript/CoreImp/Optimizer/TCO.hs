@@ -61,13 +61,13 @@ tco = flip evalState 0 . everywhereTopDownM convert where
   rewriteFunctionsWith :: ([Text] -> [Text]) -> [[Text]] -> (AST -> AST) -> AST -> ([[Text]], AST, AST -> AST)
   rewriteFunctionsWith argMapper = collectAllFunctionArgs
     where
-    collectAllFunctionArgs allArgs f (Function s1 ident args (Block s2 (body@(Return _ _):_))) =
-      collectAllFunctionArgs (args : allArgs) (\b -> f (Function s1 ident (argMapper args) (Block s2 [b]))) body
-    collectAllFunctionArgs allArgs f (Function ss ident args body@(Block _ _)) =
+    collectAllFunctionArgs allArgs f (Function s1 ident args (Block s2 n (body@(Return _ _):_))) =
+      collectAllFunctionArgs (args : allArgs) (\b -> f (Function s1 ident (argMapper args) (Block s2 n [b]))) body
+    collectAllFunctionArgs allArgs f (Function ss ident args body@(Block _ _ _)) =
       (args : allArgs, body, f . Function ss ident (argMapper args))
-    collectAllFunctionArgs allArgs f (Return s1 (Function s2 ident args (Block s3 [body]))) =
-      collectAllFunctionArgs (args : allArgs) (\b -> f (Return s1 (Function s2 ident (argMapper args) (Block s3 [b])))) body
-    collectAllFunctionArgs allArgs f (Return s1 (Function s2 ident args body@(Block _ _))) =
+    collectAllFunctionArgs allArgs f (Return s1 (Function s2 ident args (Block s3 n [body]))) =
+      collectAllFunctionArgs (args : allArgs) (\b -> f (Return s1 (Function s2 ident (argMapper args) (Block s3 n [b])))) body
+    collectAllFunctionArgs allArgs f (Return s1 (Function s2 ident args body@(Block _ _ _))) =
       (args : allArgs, body, f . Return s1 . Function s2 ident (argMapper args))
     collectAllFunctionArgs allArgs f body = (allArgs, body, f)
 
@@ -116,7 +116,7 @@ tco = flip evalState 0 . everywhereTopDownM convert where
       = anyInTailPosition body
     anyInTailPosition (IfElse _ _ body el)
       = anyInTailPosition body <> foldMap anyInTailPosition el
-    anyInTailPosition (Block _ body)
+    anyInTailPosition (Block _ _ body)
       = foldMap anyInTailPosition body
     anyInTailPosition (VariableIntroduction _ ident' (Just js1))
       | Function _ Nothing _ _ <- js1
@@ -146,14 +146,14 @@ tco = flip evalState 0 . everywhereTopDownM convert where
           let
             allArgumentValues = concat $ collectArgs [] ret
           in
-            Block ss $
+            Block ss Nothing $
               zipWith (\val arg ->
                 Assignment ss (Var ss (tcoVar arg)) val) allArgumentValues outerArgs
               ++ zipWith (\val arg ->
                 Assignment ss (Var ss (copyVar arg)) val) (drop (length outerArgs) allArgumentValues) innerArgs
               ++ [Continue ss (Just tcoLoop)]
         | isIndirectSelfCall ret = Return ss ret
-        | otherwise = Block ss
+        | otherwise = Block ss Nothing
           [ Assignment ss (Var rootSS tcoResult) ret
           , Break ss (Just tcoLoop)
           ]
@@ -161,17 +161,17 @@ tco = flip evalState 0 . everywhereTopDownM convert where
       loopify (For ss i js1 js2 body) = For ss i js1 js2 (loopify body)
       loopify (ForIn ss i js1 body) = ForIn ss i js1 (loopify body)
       loopify (IfElse ss cond body el) = IfElse ss cond (loopify body) (fmap loopify el)
-      loopify (Block ss body) = Block ss (map loopify body)
+      loopify (Block ss n body) = Block ss n (map loopify body)
       -- loopify (VariableIntroduction ss f (Just fn@(Function _ Nothing _ _)))
       --   | (_, body, replace) <- innerCollectAllFunctionArgs [] id fn
       --   , f `S.member` trFns = VariableIntroduction ss f (Just (replace (loopify body)))
       loopify other = other
 
-    pure $ Block rootSS $
+    pure $ Block rootSS Nothing $
         map (\arg -> VariableIntroduction rootSS (tcoVar arg) (Just (Var rootSS (copyVar arg)))) outerArgs ++
         [ VariableIntroduction rootSS tcoResult Nothing
         , While rootSS (Just tcoLoop) (Unary rootSS Not (Var rootSS tcoDone))
-          (Block rootSS $
+          (Block rootSS Nothing $
             map (\v -> VariableLetIntroduction rootSS v (Just . Var rootSS . tcoVar $ v)) outerArgs ++
             map (\v -> VariableLetIntroduction rootSS v (Just . Var rootSS . copyVar $ v)) innerArgs ++
             [loopify js]

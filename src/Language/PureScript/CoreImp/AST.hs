@@ -70,7 +70,7 @@ data AST
   -- ^ Function application
   | Var (Maybe SourceSpan) Text
   -- ^ Variable
-  | Block (Maybe SourceSpan) [AST]
+  | Block (Maybe SourceSpan) (Maybe Text) [AST]
   -- ^ A block of expressions in braces
   | VariableIntroduction (Maybe SourceSpan) Text (Maybe AST)
   -- ^ A variable introduction and optional initialization
@@ -102,6 +102,8 @@ data AST
   -- ^ instanceof check
   | Comment (Maybe SourceSpan) [Comment] AST
   -- ^ Commented JavaScript
+  | Pass
+  -- ^ Empty instruction
   deriving (Show, Eq)
 
 withSourceSpan :: SourceSpan -> AST -> AST
@@ -121,7 +123,7 @@ withSourceSpan withSpan = go where
   go (Function _ name args j) = Function ss name args j
   go (App _ j js) = App ss j js
   go (Var _ s) = Var ss s
-  go (Block _ js) = Block ss js
+  go (Block _ n js) = Block ss n js
   go (VariableIntroduction _ name j) = VariableIntroduction ss name j
   go (VariableLetIntroduction _ name j) = VariableLetIntroduction ss name j
   go (Assignment _ j1 j2) = Assignment ss j1 j2
@@ -137,6 +139,7 @@ withSourceSpan withSpan = go where
   go (Throw _ js) = Throw ss js
   go (InstanceOf _ j1 j2) = InstanceOf ss j1 j2
   go (Comment _ com j) = Comment ss com j
+  go Pass = Pass
 
 getSourceSpan :: AST -> Maybe SourceSpan
 getSourceSpan = go where
@@ -152,7 +155,7 @@ getSourceSpan = go where
   go (Function ss _ _ _) = ss
   go (App ss _ _) = ss
   go (Var ss _) = ss
-  go (Block ss _) = ss
+  go (Block ss _ _) = ss
   go (VariableIntroduction ss _ _) = ss
   go (VariableLetIntroduction ss _ _) = ss
   go (Assignment ss _ _) = ss
@@ -168,6 +171,7 @@ getSourceSpan = go where
   go (Throw ss _) = ss
   go (InstanceOf ss _ _) = ss
   go (Comment ss _ _) = ss
+  go Pass = Nothing
 
 everywhere :: (AST -> AST) -> AST -> AST
 everywhere f = go where
@@ -179,7 +183,7 @@ everywhere f = go where
   go (ObjectLiteral ss js) = f (ObjectLiteral ss (map (fmap go) js))
   go (Function ss name args j) = f (Function ss name args (go j))
   go (App ss j js) = f (App ss (go j) (map go js))
-  go (Block ss js) = f (Block ss (map go js))
+  go (Block ss n js) = f (Block ss n (map go js))
   go (VariableIntroduction ss name j) = f (VariableIntroduction ss name (fmap go j))
   go (VariableLetIntroduction ss name j) = f (VariableLetIntroduction ss name (fmap go j))
   go (Assignment ss j1 j2) = f (Assignment ss (go j1) (go j2))
@@ -206,7 +210,7 @@ everywhereTopDownM f = f >=> go where
   go (ObjectLiteral ss js) = ObjectLiteral ss <$> traverse (sndM f') js
   go (Function ss name args j) = Function ss name args <$> f' j
   go (App ss j js) = App ss <$> f' j <*> traverse f' js
-  go (Block ss js) = Block ss <$> traverse f' js
+  go (Block ss n js) = Block ss n <$> traverse f' js
   go (VariableIntroduction ss name j) = VariableIntroduction ss name <$> traverse f' j
   go (VariableLetIntroduction ss name j) = VariableLetIntroduction ss name <$> traverse f' j
   go (Assignment ss j1 j2) = Assignment ss <$> f' j1 <*> f' j2
@@ -229,7 +233,7 @@ everything (<>.) f = go where
   go j@(ObjectLiteral _ js) = foldl' (<>.) (f j) (map (go . snd) js)
   go j@(Function _ _ _ j1) = f j <>. go j1
   go j@(App _ j1 js) = foldl' (<>.) (f j <>. go j1) (map go js)
-  go j@(Block _ js) = foldl' (<>.) (f j) (map go js)
+  go j@(Block _ _ js) = foldl' (<>.) (f j) (map go js)
   go j@(VariableIntroduction _ _ (Just j1)) = f j <>. go j1
   go j@(VariableLetIntroduction _ _ (Just j1)) = f j <>. go j1
   go j@(Assignment _ j1 j2) = f j <>. go j1 <>. go j2

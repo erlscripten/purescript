@@ -61,8 +61,9 @@ literals = mkPattern' match'
           s'
         _ ->
           prettyPrintStringJS s
-  match (Block _ sts) = mconcat <$> sequence
-    [ return $ emit "{\n"
+  match (Block _ name sts) = mconcat <$> sequence
+    [ return $ maybe mempty (emit . (<> ": ")) name
+    , return $ emit "{\n"
     , withIndent $ prettyStatements sts
     , return $ emit "\n"
     , currentIndent
@@ -126,6 +127,7 @@ literals = mkPattern' match'
     , mconcat <$> forM com comment
     , prettyPrintJS' js
     ]
+  match Pass = return $ emit ""
   match _ = mzero
 
   comment :: (Emit gen) => Comment -> StateT PrinterState Maybe gen

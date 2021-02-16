@@ -117,7 +117,6 @@ moduleToCoreFn env (A.Module modSS coms mn decls (Just exps)) =
       (Accessor (ssAnn ss) (mkString $ runIdent ident) (Var (ssAnn ss) $ Qualified Nothing (Ident "dict")))
   exprToCoreFn _ com ty (A.PositionedValue ss com1 v) =
     exprToCoreFn ss (com ++ com1) ty v
-  exprToCoreFn _ _ _ A.SafeCaseFail = SafeCaseFail
   exprToCoreFn _ _ _ e =
     error $ "Unexpected value in exprToCoreFn mn: " ++ show e
 
@@ -125,17 +124,17 @@ moduleToCoreFn env (A.Module modSS coms mn decls (Just exps)) =
   altToCoreFn :: SourceSpan -> A.CaseAlternative -> CaseAlternative Ann
   altToCoreFn ss (A.CaseAlternative bs vs) = CaseAlternative (map (binderToCoreFn ss []) bs) (go vs)
     where
-    go :: [A.GuardedExpr] -> Either [(Guard Ann, Expr Ann)] (Expr Ann)
+    go :: [A.GuardedExpr] -> Either [([Guard Ann], Expr Ann)] (Expr Ann)
     go [A.MkUnguarded e]
       = Right (exprToCoreFn ss [] Nothing e)
     go gs
-      = Left [ (exprToCoreFn ss [] Nothing cond, exprToCoreFn ss [] Nothing e)
+      = Left [ (guard', exprToCoreFn ss [] Nothing e)
              | A.GuardedExpr g e <- gs
-             , let cond = guardToExpr g
+             , let guard' = map guardToCoreFn g
              ]
 
-    guardToExpr [A.ConditionGuard cond] = cond
-    guardToExpr _ = internalError "Guard not correctly desugared"
+    guardToCoreFn (A.ConditionGuard cond) = ConditionGuard (exprToCoreFn ss [] Nothing cond)
+    guardToCoreFn (A.PatternGuard lv rv) = PatternGuard (binderToCoreFn ss [] lv) (exprToCoreFn ss [] Nothing rv)
 
   -- | Desugars case binders from AST to CoreFn representation.
   binderToCoreFn :: SourceSpan -> [Comment] -> A.Binder -> Binder Ann

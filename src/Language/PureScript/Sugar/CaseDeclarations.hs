@@ -81,143 +81,51 @@ desugarGuardedExprs ss (Case scrut alternatives)
 
 desugarGuardedExprs ss (Case scrut alternatives) =
   let
-    -- Alternatives which do not have guards are
-    -- left as-is. Alternatives which
-    --
-    --   1) have multiple clauses of the form
-    --      binder | g_1
-    --             , g_2
-    --             , ...
-    --             , g_n
-    --             -> expr
-    --
-    --   2) and/or contain pattern guards of the form
-    --      binder | pat_bind <- e
-    --             , ...
-    --
-    -- are desugared to a sequence of nested case expressions.
-    --
-    -- Consider an example case expression:
-    --
-    --   case e of
-    --    (T s) | Just info <- Map.lookup s names
-    --          , is_used info
-    --          -> f info
-    --
-    -- We desugar this to
-    --
-    --   case e of
-    --    (T s) -> case Map.lookup s names of
-    --               Just info -> case is_used info of
-    --                              True -> f info
-    --                              (_    -> <partial>)
-    --               (_ -> <partial>)
-    --
-    -- Note that if the original case is partial the desugared
-    -- case is also partial.
-    --
-    -- Consider an exhaustive case expression:
-    --
-    --   case e of
-    --    (T s) | Just info <- Map.lookup s names
-    --          , is_used info
-    --          -> f info
-    --    _     -> Nothing
-    --
-    -- desugars to:
-    --
-    --    case e of
-    --      _ -> let
-    --                v _ = Nothing
-    --           in
-    --             case e of
-    --                (T s) -> case Map.lookup s names of
-    --                          Just info -> f info
-    --                          _ -> v true
-    --                _  -> v true
-    --
-    -- This might look strange but simplifies the algorithm a lot.
-    --
     desugarAlternatives :: [CaseAlternative]
                         -> m [CaseAlternative]
-    desugarAlternatives [] = pure []
+    desugarAlternatives = mapM desugarAlternative
 
-    -- the trivial case: no guards
-    desugarAlternatives (a@(CaseAlternative _ [MkUnguarded _]) : as) =
-      (a :) <$> desugarAlternatives as
+    desugarAlternative (CaseAlternative ab ge) = do
+      dge <- forM ge $ \(GuardedExpr g e) -> GuardedExpr (desugarGuard g) <$> desugarGuardedExprs ss e
+      return $ CaseAlternative ab dge
 
-    -- Special case: CoreFn understands single condition guards on
-    -- binders right hand side.
-    desugarAlternatives (CaseAlternative ab ge : as)
-      | not (null cond_guards) =
-          (CaseAlternative ab cond_guards :)
-            <$> desugarGuardedAlternative ab rest as
-      | otherwise = desugarGuardedAlternative ab ge as
-      where
-        (cond_guards, rest) = span isSingleCondGuard ge
+    -- -- Special case: CoreFn understands single condition guards on
+    -- -- binders right hand side.
+    -- desugarAlternatives (CaseAlternative ab ge : as)
+    --   | not (null cond_guards) =
+    --       (CaseAlternative ab cond_guards :)
+    --         <$> desugarGuardedAlternative ab rest as
+    --   | otherwise = desugarGuardedAlternative ab ge as
+    --   where
+    --     (cond_guards, rest) = span isSingleCondGuard ge
 
-        isSingleCondGuard (GuardedExpr [ConditionGuard _] _) = True
-        isSingleCondGuard _ = False
+    --     isSingleCondGuard (GuardedExpr [ConditionGuard _] _) = True
+    --     isSingleCondGuard _ = False
 
-    desugarGuardedAlternative :: [Binder]
-                              -> [GuardedExpr]
-                              -> [CaseAlternative]
-                              -> m [CaseAlternative]
-    desugarGuardedAlternative _vb [] rem_alts =
-      desugarAlternatives rem_alts
+    -- desugarGuardedAlternative :: [Binder]
+    --                           -> [GuardedExpr]
+    --                           -> [CaseAlternative]
+    --                           -> m [CaseAlternative]
+    -- desugarGuardedAlternative _vb [] rem_alts =
+    --   desugarAlternatives rem_alts
 
-    desugarGuardedAlternative vb (GuardedExpr gs e : ge) rem_alts = do
-      rhs <- desugarAltOutOfLine vb ge rem_alts $ \alt_fail ->
-        let
-          -- if the binder is a var binder we must not add
-          -- the fail case as it results in unreachable
-          -- alternative
-          alt_fail' n | all isIrrefutable vb = []
-                      | otherwise = alt_fail n
+    -- desugarGuardedAlternative vb (GuardedExpr gs e : ge) rem_alts = do
+    --   rhs <- desugarAltOutOfLine vb ge rem_alts $ \alt_fail ->
+    --     Case scrut
+    --     (CaseAlternative vb (desugarGuard gs)
+    --       : alt_fail' (length scrut))
 
 
-          -- we are here:
-          --
-          -- case scrut of
-          --   ...
-          --   _ -> let
-          --         v _ = <out of line case>
-          --        in case scrut of -- we are here
-          --            ...
-          --
-        in Case scrut
-            (CaseAlternative vb [MkUnguarded (desugarGuard gs e alt_fail)]
-              : alt_fail' (length scrut))
-
-      return [ CaseAlternative scrut_nullbinder [MkUnguarded rhs]]
-
-    pass :: Int -> [CaseAlternative]
-    pass n = [CaseAlternative (replicate n NullBinder) [MkUnguarded SafeCaseFail]]
-
-    desugarGuard :: [Guard] -> Expr -> (Int -> [CaseAlternative]) -> Expr
-    desugarGuard [] e _ = e
-    desugarGuard (ConditionGuard c1 : ConditionGuard c2 : gs) e match_failed =
+    desugarGuard :: [Guard] -> [Guard]
+    desugarGuard (ConditionGuard c1 : ConditionGuard c2 : gs) =
       desugarGuard (ConditionGuard (
                        App (App (App (Var ss (Qualified (Just (ModuleName "Data.HeytingAlgebra")) (Ident C.conj)))
                                   (Var ss (Qualified (Just (ModuleName "Data.HeytingAlgebra")) (Ident C.heytingAlgebraBoolean))))
                                  c1)
                              c2)
-                     : gs) e match_failed
-    desugarGuard (ConditionGuard c : gs) e match_failed
-      | isTrueExpr c = desugarGuard gs e match_failed
-      | otherwise =
-        Case [c]
-          (CaseAlternative [LiteralBinder ss (BooleanLiteral True)]
-            [MkUnguarded (desugarGuard gs e pass)] : match_failed 1)
-
-    desugarGuard (PatternGuard vb g : gs) e match_failed =
-      Case [g]
-        (CaseAlternative [vb] [MkUnguarded (desugarGuard gs e match_failed)]
-          : match_failed')
-      where
-        -- don't consider match_failed case if the binder is irrefutable
-        match_failed' | isIrrefutable vb = []
-                      | otherwise        = pass 1
+                     : gs)
+    desugarGuard [] = []
+    desugarGuard (h:t) = h:desugarGuard t
 
     -- we generate a let-binding for the remaining guards
     -- and alternatives. A CaseAlternative is passed (or in

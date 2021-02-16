@@ -1,4 +1,5 @@
 {-# LANGUAGE Strict #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |
 -- CoreFn traversal helpers
 --
@@ -40,9 +41,12 @@ everywhereOnValues f g h = (f', g', h')
   h' (ConstructorBinder a q1 q2 bs) = h (ConstructorBinder a q1 q2 (map h' bs))
   h' b = h b
 
+  handleGuard (ConditionGuard e) = ConditionGuard (g' e)
+  handleGuard (PatternGuard p e) = PatternGuard (h' p) (g' e)
+
   handleCaseAlternative ca =
     ca { caseAlternativeBinders = map h' (caseAlternativeBinders ca)
-       , caseAlternativeResult = (map (g' *** g') +++ g') (caseAlternativeResult ca)
+       , caseAlternativeResult = (map (map handleGuard *** g') +++ g') (caseAlternativeResult ca)
        }
 
   handleLiteral :: (a -> a) -> Literal a -> Literal a
@@ -76,7 +80,11 @@ everythingOnValues (<>.) f g h i = (f', g', h', i')
   h' b = h b
 
   i' ca@(CaseAlternative bs (Right val)) = foldl' (<>.) (i ca) (map h' bs) <>. g' val
-  i' ca@(CaseAlternative bs (Left gs)) = foldl' (<>.) (i ca) (map h' bs ++ concatMap (\(grd, val) -> [g' grd, g' val]) gs)
+  i' ca@(CaseAlternative bs (Left gs)) = foldl' (<>.) (i ca)
+    (map h' bs ++ concatMap (\(grd, val) -> map handleGuard grd ++ [g' val]) gs)
+
+  handleGuard (ConditionGuard e) = g' e
+  handleGuard (PatternGuard p e) = h' p <>. g' e
 
   extractLiteral (ArrayLiteral xs) = xs
   extractLiteral (ObjectLiteral xs) = map snd xs

@@ -75,7 +75,7 @@ isUpdated var1 = everything (||) check
 
 {-# INLINE removeFromBlock #-}
 removeFromBlock :: ([AST] -> [AST]) -> AST -> AST
-removeFromBlock go (Block ss sts) = Block ss (go sts)
+removeFromBlock go (Block ss n sts) = Block ss n (go sts)
 removeFromBlock _  js = js
 
 {-# INLINE isDict #-}

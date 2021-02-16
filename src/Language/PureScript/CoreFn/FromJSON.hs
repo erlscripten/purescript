@@ -247,7 +247,8 @@ caseAlternativeFromJSON modulePath = withObject "CaseAlternative" caseAlternativ
       if isGuarded
         then do
           es <- o .: "expressions" >>= listParser parseResultWithGuard
-          return $ CaseAlternative bs (Left es)
+          error "TODO: fromJSON"
+          -- return $ CaseAlternative bs (Left es)
         else do
           e <- o .: "expression" >>= exprFromJSON modulePath
           return $ CaseAlternative bs (Right e)
@@ -257,7 +258,8 @@ caseAlternativeFromJSON modulePath = withObject "CaseAlternative" caseAlternativ
       \o -> do
         g <- o .: "guard" >>= exprFromJSON modulePath
         e <- o .: "expression" >>= exprFromJSON modulePath
-        return (g, e)
+        error "TODO: fromJSON"
+        -- return (g, e)
 
 binderFromJSON :: FilePath -> Value -> Parser (Binder Ann)
 binderFromJSON modulePath = withObject "Binder" binderFromObj

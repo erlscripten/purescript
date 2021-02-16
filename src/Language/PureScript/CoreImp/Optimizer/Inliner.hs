@@ -44,31 +44,31 @@ etaConvert :: AST -> AST
 etaConvert = everywhere convert
   where
   convert :: AST -> AST
-  convert (Block ss [Return _ (App _ (Function _ Nothing idents block@(Block _ body)) args)])
+  convert (Block ss n [Return _ (App _ (Function _ Nothing idents block@(Block _ _ body)) args)])
     | all shouldInline args &&
       not (any ((`isRebound` block) . Var Nothing) idents) &&
       not (any (`isRebound` block) args)
-      = Block ss (map (replaceIdents (zip idents args)) body)
-  convert (Function _ Nothing [] (Block _ [Return _ (App _ fn [])])) = fn
+      = Block ss n (map (replaceIdents (zip idents args)) body)
+  convert (Function _ Nothing [] (Block _ Nothing [Return _ (App _ fn [])])) = fn
   convert js = js
 
 unThunk :: AST -> AST
 unThunk = everywhere convert
   where
   convert :: AST -> AST
-  convert (Block ss []) = Block ss []
-  convert (Block ss jss) =
+  convert (Block ss n []) = Block ss n []
+  convert (Block ss n jss) =
     case last jss of
-      Return _ (App _ (Function _ Nothing [] (Block _ body)) []) -> Block ss $ init jss ++ body
-      _ -> Block ss jss
+      Return _ (App _ (Function _ Nothing [] (Block _ Nothing body)) []) -> Block ss n $ init jss ++ body
+      _ -> Block ss n jss
   convert js = js
 
 evaluateIifes :: AST -> AST
 evaluateIifes = everywhere convert
   where
   convert :: AST -> AST
-  convert (App _ (Function _ Nothing [] (Block _ [Return _ ret])) []) = ret
-  convert (App _ (Function _ Nothing idents (Block _ [Return ss ret])) [])
+  convert (App _ (Function _ Nothing [] (Block _ _ [Return _ ret])) []) = ret
+  convert (App _ (Function _ Nothing idents (Block _ _ [Return ss ret])) [])
     | not (any (`isReassigned` ret) idents) = replaceIdents (map (, Var ss C.undefined) idents) ret
   convert js = js
 
@@ -198,16 +198,16 @@ inlineCommonOperators = everywhereTopDown $ applyAll $
 
   mkFn :: Int -> AST -> AST
   mkFn = mkFn' C.dataFunctionUncurried C.mkFn $ \ss1 ss2 ss3 args js ->
-    Function ss1 Nothing args (Block ss2 [Return ss3 js])
+    Function ss1 Nothing args (Block ss2 Nothing [Return ss3 js])
 
   mkEffFn :: Text -> Text -> Int -> AST -> AST
   mkEffFn modName fnName = mkFn' modName fnName $ \ss1 ss2 ss3 args js ->
-    Function ss1 Nothing args (Block ss2 [Return ss3 (App ss3 js [])])
+    Function ss1 Nothing args (Block ss2 Nothing [Return ss3 (App ss3 js [])])
 
   mkFn' :: Text -> Text -> (Maybe SourceSpan -> Maybe SourceSpan -> Maybe SourceSpan -> [Text] -> AST -> AST) -> Int -> AST -> AST
   mkFn' modName fnName res 0 = convert where
     convert :: AST -> AST
-    convert (App _ mkFnN [Function s1 Nothing [_] (Block s2 [Return s3 js])]) | isNFn modName fnName 0 mkFnN =
+    convert (App _ mkFnN [Function s1 Nothing [_] (Block s2 Nothing [Return s3 js])]) | isNFn modName fnName 0 mkFnN =
       res s1 s2 s3 [] js
     convert other = other
   mkFn' modName fnName res n = convert where
@@ -218,8 +218,8 @@ inlineCommonOperators = everywhereTopDown $ applyAll $
         _ -> orig
     convert other = other
     collectArgs :: Int -> [Text] -> AST -> Maybe ([Text], [AST])
-    collectArgs 1 acc (Function _ Nothing [oneArg] (Block _ js)) | length acc == n - 1 = Just (reverse (oneArg : acc), js)
-    collectArgs m acc (Function _ Nothing [oneArg] (Block _ [Return _ ret])) = collectArgs (m - 1) (oneArg : acc) ret
+    collectArgs 1 acc (Function _ Nothing [oneArg] (Block _ _ js)) | length acc == n - 1 = Just (reverse (oneArg : acc), js)
+    collectArgs m acc (Function _ Nothing [oneArg] (Block _ _ [Return _ ret])) = collectArgs (m - 1) (oneArg : acc) ret
     collectArgs _ _   _ = Nothing
 
   isNFn :: Text -> Text -> Int -> AST -> Bool
@@ -232,7 +232,7 @@ inlineCommonOperators = everywhereTopDown $ applyAll $
 
   runEffFn :: Text -> Text -> Int -> AST -> AST
   runEffFn modName fnName = runFn' modName fnName $ \ss fn acc ->
-    Function ss Nothing [] (Block ss [Return ss (App ss fn acc)])
+    Function ss Nothing [] (Block ss Nothing [Return ss (App ss fn acc)])
 
   runFn' :: Text -> Text -> (Maybe SourceSpan -> AST -> [AST] -> AST) -> Int -> AST -> AST
   runFn' modName runFnName res n = convert where
@@ -274,10 +274,10 @@ inlineFnComposition = everywhereTopDownM convert where
   convert other = return other
 
   mkApps :: Maybe SourceSpan -> [Either AST (Text, AST)] -> Text -> AST
-  mkApps ss fns a = App ss (Function ss Nothing [] (Block ss $ vars <> [Return Nothing comp])) []
+  mkApps ss fns a = App ss (Function ss Nothing [] (Block ss Nothing $ vars <> [Return Nothing comp])) []
     where
     vars = uncurry (VariableIntroduction ss) . fmap Just <$> rights fns
-    comp = Function ss Nothing [a] (Block ss [Return Nothing apps])
+    comp = Function ss Nothing [a] (Block ss Nothing [Return Nothing apps])
     apps = foldr (\fn acc -> App ss (mkApp fn) [acc]) (Var ss a) fns
 
   mkApp :: Either AST (Text, AST) -> AST
