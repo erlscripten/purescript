@@ -55,12 +55,6 @@ data Env = Env
   , continuation :: AST -> AST
   }
 
-inLet :: MonadReader Env m => Text -> m a -> m a
-inLet var = local $ \env -> env{continuation = AST.Assignment Nothing (AST.Var Nothing var)}
-
-inFun :: MonadReader Env m => m a -> m a
-inFun = local $ \env -> env{continuation = AST.Return Nothing}
-
 type VarEnv = Map Text Text
 
 -- | Generate code in the simplified JavaScript intermediate representation for all declarations in a
@@ -97,6 +91,21 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     return $ moduleBody ++ [AST.Assignment Nothing (accessorString "exports" (AST.Var Nothing "module")) exps']
 
   where
+
+  inLet :: MonadReader Env m => Text -> Ident -> m a -> m a
+  inLet breakRef i = local $ \env ->
+    env{continuation = \val ->
+        AST.Block Nothing Nothing [AST.Assignment Nothing (var i) val, AST.Break Nothing (Just breakRef)]
+       }
+
+  inFun :: MonadReader Env m => m a -> m a
+  inFun = local $ \env -> env{continuation = AST.Return Nothing}
+
+  inExpr :: MonadReader Env m => m a -> m a
+  inExpr = local $ \env -> env{continuation = id}
+
+  withCont :: MonadReader Env m => AST -> m AST
+  withCont ast = asks $ ($ast) . continuation
 
   -- | Extracts all declaration names from a binding group.
   getNames :: Bind Ann -> [Ident]
@@ -166,24 +175,28 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   --
   bindToJs :: Bind Ann -> m [AST]
   bindToJs (NonRec ann ident val) = do
-    (ds, x) <- nonRecToJS ann ident val
-    return $ ds ++ [x]
+    ds <- nonRecToJS ann ident val
+    return ds
   bindToJs (Rec vals) = do
-    (\l -> l >>= \(ds, x) -> ds ++ [x]) <$> forM vals (uncurry . uncurry $ nonRecToJS)
+    concat <$> forM vals (uncurry . uncurry $ nonRecToJS)
 
   -- | Generate code in the simplified JavaScript intermediate representation for a single non-recursive
   -- declaration.
   --
   -- The main purpose of this function is to handle code generation for comments.
-  nonRecToJS :: Ann -> Ident -> Expr Ann -> m ([AST], AST)
+  nonRecToJS :: Ann -> Ident -> Expr Ann -> m [AST]
   nonRecToJS a i e@(extractAnn -> (_, com, _, _)) | not (null com) = do
     withoutComment <- asks $ optionsNoComments . options
     if withoutComment
        then nonRecToJS a i (modifyAnn removeComments e)
-       else AST.Comment Nothing com <$$> nonRecToJS a i (modifyAnn removeComments e)
-  nonRecToJS (ss, _, _, _) ident val = do
-    (ds, js) <- valueToJs val
-    fmap (ds,) $ withPos ss $ AST.VariableLetIntroduction Nothing (identToJs ident) (Just js)
+       else map (AST.Comment Nothing com) <$> nonRecToJS a i (modifyAnn removeComments e)
+  nonRecToJS (_, _, _, _) ident val = do
+    breakRef <- freshNameHint $ "init_" <> identToJs ident <> "_"
+    (ds, js) <- inLet breakRef ident $ valueToJs val
+    return (AST.VariableLetIntroduction Nothing (identToJs ident) Nothing :
+            ds ++
+            [AST.Block Nothing (Just breakRef) [js]]
+           )
 
   withPos :: SourceSpan -> AST -> m AST
   withPos ss js = do
@@ -214,7 +227,10 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     let (ss, _, _, _) = extractAnn e
     (ds, x) <- valueToJs' e
     x' <- withPos ss x
-    return (ds, x')
+    finCont <- asks continuation
+    case x' of
+      AST.Block _ Nothing _ -> return (ds, x')
+      _ -> return (ds, finCont x')
 
   single :: AST -> m ([AST], AST)
   single = return . ([],)
@@ -233,10 +249,10 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   valueToJs' (Var (_, _, _, Just (IsConstructor _ _)) name) =
     single $ accessorString "create" $ qualifiedToJS id name
   valueToJs' (Accessor _ prop val) =
-    accessorString prop <$$> valueToJs val
+    accessorString prop <$$> inExpr (valueToJs val)
   valueToJs' (ObjectUpdate _ o ps) = do
-    (dso, obj) <- valueToJs o
-    (dss, sts) <- traverseCat (fmap (\(p, (d, x)) -> (d, (p, x))) . sndM valueToJs) ps
+    (dso, obj) <- inExpr $ valueToJs o
+    (dss, sts) <- inExpr $ traverseCat (fmap (\(p, (d, x)) -> (d, (p, x))) . sndM valueToJs) ps
     first ((dso ++ dss) ++) <$> extendObj obj sts
   valueToJs' e@(Abs (_, _, _, Just IsTypeClassConstructor) _ _) = do
     let args = unAbs e
@@ -256,12 +272,11 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     r <- single $ AST.Function Nothing Nothing jsArg (AST.Block Nothing Nothing $
       case ret of
         (ds, AST.Block _ Nothing bs) -> ds ++ bs
-        (ds, b@AST.Block{}) -> ds ++ [b]
-        (ds, v) -> ds ++ [AST.Return Nothing v])
+        (ds, v) -> ds ++ [v])
     return r
   valueToJs' e@App{} = do
     let (f, args) = unApp e []
-    (dsa, args') <- traverseCat valueToJs args
+    (dsa, args') <- inExpr $ traverseCat valueToJs args
     case f of
       Var (_, _, _, Just IsNewtype) _ -> return (dsa, head args')
       Var (_, _, _, Just (IsConstructor _ fields)) name | length args == length fields ->
@@ -269,7 +284,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
       Var (_, _, _, Just IsTypeClassConstructor) name ->
         return (dsa, AST.Unary Nothing AST.New $ AST.App Nothing (qualifiedToJS id name) args')
       _ -> do
-        (dsf, v') <- valueToJs f
+        (dsf, v') <- inExpr $ valueToJs f
         return (dsa ++ dsf, foldl (\fn a -> AST.App Nothing fn [a]) v' args')
     where
     unApp :: Expr Ann -> [Expr Ann] -> (Expr Ann, [Expr Ann])
@@ -287,12 +302,12 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
       Just name -> AST.Var Nothing name
   valueToJs' (Var _ q) = single $ varToJs q
   valueToJs' (Case (ss, _, _, _) values binders) = do
-    (ds, vals) <- traverseCat valueToJs values
+    (ds, vals) <- inExpr $ traverseCat valueToJs values
     (ds,) <$> bindersToJs ss binders vals
   valueToJs' (Let _ ds val) = do
-    ds' <- concat <$> mapM bindToJs ds
+    ds' <- inExpr $ concat <$> mapM bindToJs ds
     declsAndMap <- forM ds' $ \d -> case d of
-      AST.Var ann name -> do
+      AST.Var ann name -> do -- FIXME renaming
         q <- freshName
         return (AST.Var ann q, Just (name, q))
       _ -> return (d, Nothing)
@@ -414,21 +429,21 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
 
       guardSeqToJs :: Maybe Text -> [Guard Ann] -> Expr Ann -> m [AST]
       guardSeqToJs _ [] fin = do
-        (ds, fin') <- valueToJs fin
+        (ds, fin') <- inExpr $ valueToJs fin
         finalCont <- asks continuation
         return $ case fin' of
           AST.Block _ Nothing bs -> ds ++ bs
           b@AST.Block{} -> ds ++ [b]
           _ -> ds ++ [finalCont fin']
       guardSeqToJs rollback (ConditionGuard e : rest) fin = do
-         (ds, val) <- valueToJs e
+         (ds, val) <- inExpr $ valueToJs e
          cont <- guardSeqToJs rollback rest fin
          return $ ds ++
            [ AST.IfElse Nothing val (AST.Block Nothing Nothing cont)
              (AST.Break Nothing . Just <$> rollback)
            ]
       guardSeqToJs rollback (PatternGuard lv rv : rest) fin = do
-         (ds, rv') <- valueToJs rv
+         (ds, rv') <- inExpr $ valueToJs rv
          casevar <- freshName
          cont <- guardSeqToJs rollback rest fin
          bind <- binderToJs casevar cont lv

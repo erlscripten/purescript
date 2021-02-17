@@ -34,3 +34,6 @@ instance (Monoid w, MonadSupply m) => MonadSupply (WriterT w m)
 
 freshName :: MonadSupply m => m Text
 freshName = fmap (("$" <> ) . pack . show) fresh
+
+freshNameHint :: MonadSupply m => Text -> m Text
+freshNameHint hint = fmap ((("$" <> hint) <> ) . pack . show) fresh
