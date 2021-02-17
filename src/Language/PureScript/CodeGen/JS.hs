@@ -221,6 +221,12 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   accessorString :: PSString -> AST -> AST
   accessorString prop = AST.Indexer Nothing (AST.StringLiteral Nothing prop)
 
+  willHandleContinuationByItself :: Expr Ann -> Bool
+  willHandleContinuationByItself e = case e of
+    Let{} -> True
+    Case{} -> True
+    _ -> False
+
   -- | Generate code in the simplified JavaScript intermediate representation for a value or expression.
   valueToJs :: Expr Ann -> m ([AST], AST)
   valueToJs e = do
@@ -230,7 +236,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     finCont <- asks continuation
     case x' of
       AST.Block _ Nothing _ -> return (ds, x')
-      _ -> return (ds, finCont x')
+      _ -> return (ds, if willHandleContinuationByItself e then x' else finCont x')
 
   single :: AST -> m ([AST], AST)
   single = return . ([],)
@@ -429,12 +435,11 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
 
       guardSeqToJs :: Maybe Text -> [Guard Ann] -> Expr Ann -> m [AST]
       guardSeqToJs _ [] fin = do
-        (ds, fin') <- inExpr $ valueToJs fin
-        finalCont <- asks continuation
+        (ds, fin') <- valueToJs fin
         return $ case fin' of
           AST.Block _ Nothing bs -> ds ++ bs
           b@AST.Block{} -> ds ++ [b]
-          _ -> ds ++ [finalCont fin']
+          _ -> ds ++ [fin']
       guardSeqToJs rollback (ConditionGuard e : rest) fin = do
          (ds, val) <- inExpr $ valueToJs e
          cont <- guardSeqToJs rollback rest fin
