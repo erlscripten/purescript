@@ -357,8 +357,12 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     dsr <- bindToVar resVar (([],) <$> bindersToJs ss binders vals)
     return (ds ++ dsr, AST.Var Nothing resVar)
   valueToJs' (Let _ ds val) = do
-    (envs, ds') <- inExpr $ unzip <$> mapM bindToJs ds
-    let env1 = M.unions envs
+    env0 <- asks vars
+    let proceedDecl (prevEnv, prevDecls) decl' = do
+          (env'', decl'') <- local (\e -> e{vars = prevEnv}) $ bindToJs decl'
+          return (M.union env'' prevEnv, prevDecls . (decl'':))
+    (env1, ds'c) <- inExpr $ foldM proceedDecl (env0, id) ds
+    let ds' = ds'c []
     (ds'', ret) <- local (\env -> env{vars = Map.union env1 (vars env)}) $ valueToJs val
     return (concat ds' ++ ds'', ret)
   valueToJs' (Constructor (_, _, _, Just IsNewtype) _ ctor _) =
