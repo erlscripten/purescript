@@ -351,10 +351,10 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   literalToValueJS ss (CharLiteral c) = single $ AST.StringLiteral (Just ss) (fromString [c])
   literalToValueJS ss (BooleanLiteral b) = single $ AST.BooleanLiteral (Just ss) b
   literalToValueJS ss (ArrayLiteral xs) = do
-    (declss, vals) <- unzip <$> mapM valueToJs xs
-    return (concat declss, AST.ArrayLiteral (Just ss) vals)
+    (declss, vals) <- traverseCat (inExpr . valueToJs) xs
+    return (declss, AST.ArrayLiteral (Just ss) vals)
   literalToValueJS ss (ObjectLiteral ps) = do
-    (declss, vals) <- unzip . map (\(p, (d, x)) -> (d, (p, x))) <$> mapM (sndM valueToJs) ps
+    (declss, vals) <- unzip . map (\(p, (d, x)) -> (d, (p, x))) <$> mapM (sndM (inExpr . valueToJs)) ps
     return (concat declss, AST.ObjectLiteral (Just ss) vals)
 
   -- | Shallow copy an object.
