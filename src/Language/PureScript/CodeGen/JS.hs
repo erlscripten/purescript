@@ -10,10 +10,10 @@ module Language.PureScript.CodeGen.JS
 import Debug.Trace
 
 import Prelude.Compat
-import Protolude (ordNub)
+import Protolude (ordNub, swap)
 
 import Control.Arrow ((&&&))
-import Control.Monad (forM, replicateM, void)
+import Control.Monad (forM, replicateM, void, foldM)
 import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Reader (MonadReader, asks, local)
 import Control.Monad.Supply.Class
@@ -53,6 +53,8 @@ data Env = Env
   { options :: Options
   , vars :: VarEnv
   , continuation :: AST -> AST
+  , currentModule :: Maybe ModuleName
+  , inToplevel :: Bool
   }
 
 type VarEnv = Map Text Text
@@ -66,12 +68,16 @@ moduleToJs
   -> Maybe AST
   -> m [AST]
 moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
-  rethrow (addHint (ErrorInModule mn)) $ do
+  rethrow (addHint (ErrorInModule mn)) $ local (\e -> e{currentModule = Just mn}) $ do
     let usedNames = concatMap getNames decls
     let mnLookup = renameImports usedNames imps
     let decls' = renameModules mnLookup decls
 
-    jsDecls <- inFun $ mapM bindToJs decls'
+    env0 <- asks vars
+    let proceedDecl (prevEnv, prevDecls) decl' = do
+          (env'', decl'') <- local (\e -> e{vars = prevEnv}) $ bindToJs decl'
+          return (M.union env'' prevEnv, prevDecls . (decl'':))
+    jsDecls <- inFun $ ($[]) . snd <$> foldM proceedDecl (env0, id) decls'
     optimized <- traverse (traverse optimize) jsDecls
     let mnReverseLookup = M.fromList $ map (\(origName, (_, safeName)) -> (moduleNameToJs safeName, origName)) $ M.toList mnLookup
     let usedModuleNames = foldMap (foldMap (findModules mnReverseLookup)) optimized
@@ -86,16 +92,23 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     let moduleBody = header : foreign' ++ jsImports ++ concat optimized
     let foreignExps = exps `intersect` foreigns
     let standardExps = exps \\ foreignExps
-    let exps' = AST.ObjectLiteral Nothing $ map (mkString . runIdent &&& AST.Var Nothing . identToJs) standardExps
-                               ++ map (mkString . runIdent &&& foreignIdent) foreignExps
+    let exps' =
+          AST.ObjectLiteral Nothing $
+          map (mkString . runIdent &&&
+               AST.Var Nothing . identToJs
+              ) standardExps
+          ++ map (mkString . runIdent &&& foreignIdent) foreignExps
     return $ moduleBody ++ [AST.Assignment Nothing (accessorString "exports" (AST.Var Nothing "module")) exps']
 
   where
 
-  inLet :: MonadReader Env m => Text -> Ident -> m a -> m a
+  escapeTopLevel :: m a -> m a
+  escapeTopLevel = local $ \e -> e{inToplevel = False}
+
+  inLet :: MonadReader Env m => Text -> Text -> m a -> m a
   inLet breakRef i = local $ \env ->
     env{continuation = \val ->
-        AST.Block Nothing Nothing [AST.Assignment Nothing (var i) val, AST.Break Nothing (Just breakRef)]
+        AST.Block Nothing Nothing [AST.Assignment Nothing (AST.Var Nothing i) val, AST.Break Nothing (Just breakRef)]
        }
 
   inFun :: MonadReader Env m => m a -> m a
@@ -180,25 +193,45 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   -- |
   -- Generate code in the simplified JavaScript intermediate representation for a declaration
   --
-  bindToJs :: Bind Ann -> m [AST]
+  bindToJs :: Bind Ann -> m (VarEnv, [AST])
   bindToJs (NonRec ann ident val) = do
-    ds <- nonRecToJS ann ident val
-    return ds
+    let nameStr = identToJs ident
+    env <- do
+      inTop <- asks inToplevel
+      if inTop then return M.empty
+      else do newName <- freshNameHint nameStr
+              return (M.singleton nameStr newName)
+    local (\e -> e{vars = M.union env (vars e)}) $ do
+      ds <- nonRecToJS ann nameStr val
+      return (env, ds)
   bindToJs (Rec vals) = do
-    concat <$> forM vals (uncurry . uncurry $ nonRecToJS)
+    env <- do
+      inTop <- asks inToplevel
+      if inTop then return M.empty
+      else fmap M.fromList $ forM vals $ \((_, ident), _) -> do
+         let nameStr = identToJs ident
+         newName <- freshNameHint nameStr
+         return (nameStr, newName)
+    ds <- local (\e -> e{vars = M.union env (vars e)}) $
+      fmap concat $ forM vals $ \((ann, ident), val) -> nonRecToJS ann (identToJs ident) val
+    return (env, ds)
 
   -- | Generate code in the simplified JavaScript intermediate representation for a single non-recursive
   -- declaration.
   --
   -- The main purpose of this function is to handle code generation for comments.
-  nonRecToJS :: Ann -> Ident -> Expr Ann -> m [AST]
+  nonRecToJS :: Ann -> Text -> Expr Ann -> m [AST]
   nonRecToJS a i e@(extractAnn -> (_, com, _, _)) | not (null com) = do
     withoutComment <- asks $ optionsNoComments . options
     if withoutComment
        then nonRecToJS a i (modifyAnn removeComments e)
        else map (AST.Comment Nothing com) <$> nonRecToJS a i (modifyAnn removeComments e)
-  nonRecToJS (_, _, _, _) ident val = do
-    bindToVar ident (valueToJs val)
+  nonRecToJS (_, _, _, _) ident val = escapeTopLevel $ do
+    env <- asks vars
+    let solvedIdent = case M.lookup ident env of
+          Just ii -> ii
+          _ -> ident
+    bindToVar solvedIdent (valueToJs val)
 
   withPos :: SourceSpan -> AST -> m AST
   withPos ss js = do
@@ -247,12 +280,12 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     (ds, vs) <- unzip <$> traverse f l
     return (concat ds, vs)
 
-  bindToVar :: Ident -> m ([AST], AST) -> m [AST]
+  bindToVar :: Text -> m ([AST], AST) -> m [AST]
   bindToVar v ex = do
-    breakRef <- freshNameHint $ "def_" <> identToJs v <> "_"
+    breakRef <- freshNameHint $ "def_" <> v <> "_"
     (ds, js) <- inLet breakRef v ex
     return
-      (AST.VariableLetIntroduction Nothing (identToJs v) Nothing :
+      (AST.VariableLetIntroduction Nothing v Nothing :
        ds ++
        [AST.Block Nothing (Just breakRef) [js]]
       )
@@ -309,27 +342,25 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
              else varToJs qi
   valueToJs' (Var (_, _, _, Just IsForeign) ident) =
     internalError $ "Encountered an unqualified reference to a foreign ident " ++ T.unpack (showQualified showIdent ident)
-  valueToJs' (Var _ q@(Qualified Nothing (Ident v))) = asks vars >>= \env ->
-    single $ case M.lookup v env of
-      Nothing -> varToJs q
-      Just name -> AST.Var Nothing name
-  valueToJs' (Var _ q) = single $ varToJs q
+  valueToJs' (Var _ q@(Qualified qual (Ident v))) = do
+    env <- asks vars
+    currMod <- asks currentModule
+    single $
+      if isNothing qual || qual == currMod
+      then case M.lookup v env of
+        Nothing -> varToJs q
+        Just name -> AST.Var Nothing name
+      else varToJs q
   valueToJs' (Case (ss, _, _, _) values binders) = do
     (ds, vals) <- inExpr $ traverseCat valueToJs values
-    resVar <- ("case" <>) . T.pack . show <$> fresh
-    dsr <- bindToVar (Ident resVar) (([],) <$> bindersToJs ss binders vals)
+    resVar <- freshNameHint "case"
+    dsr <- bindToVar resVar (([],) <$> bindersToJs ss binders vals)
     return (ds ++ dsr, AST.Var Nothing resVar)
   valueToJs' (Let _ ds val) = do
-    ds' <- inExpr $ concat <$> mapM bindToJs ds
-    declsAndMap <- forM ds' $ \d -> case d of
-      AST.Var ann name -> do -- FIXME renaming
-        q <- freshName
-        return (AST.Var ann q, Just (name, q))
-      _ -> return (d, Nothing)
-    let decls1 = map fst declsAndMap
-        env1 = Map.fromList $ mapMaybe snd declsAndMap
+    (envs, ds') <- inExpr $ unzip <$> mapM bindToJs ds
+    let env1 = M.unions envs
     (ds'', ret) <- local (\env -> env{vars = Map.union env1 (vars env)}) $ valueToJs val
-    return (decls1 ++ ds'', ret)
+    return (concat ds' ++ ds'', ret)
   valueToJs' (Constructor (_, _, _, Just IsNewtype) _ ctor _) =
     single $ AST.VariableLetIntroduction Nothing (properToJs ctor) (Just $
                 AST.ObjectLiteral Nothing [("create",
