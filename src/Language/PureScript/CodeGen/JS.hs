@@ -10,7 +10,7 @@ module Language.PureScript.CodeGen.JS
 import Debug.Trace
 
 import Prelude.Compat
-import Protolude (ordNub, swap)
+import Protolude (ordNub)
 
 import Control.Arrow ((&&&))
 import Control.Monad (forM, replicateM, void, foldM)
@@ -18,12 +18,12 @@ import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Reader (MonadReader, asks, local)
 import Control.Monad.Supply.Class
 
-import Data.Bifunctor(second, first, bimap)
+import Data.Bifunctor(first, second, bimap)
 import Data.List ((\\), intersect)
 import qualified Data.Foldable as F
 import qualified Data.Map as M
 import qualified Data.Set as S
-import Data.Maybe (fromMaybe, isNothing, mapMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -46,9 +46,6 @@ import qualified Language.PureScript.Constants as C
 
 import System.FilePath.Posix ((</>))
 
-import qualified Data.Map as Map
-import Data.Map(Map)
-
 data Env = Env
   { options :: Options
   , vars :: VarEnv
@@ -57,7 +54,7 @@ data Env = Env
   , inToplevel :: Bool
   }
 
-type VarEnv = Map Text Text
+type VarEnv = M.Map Text Text
 
 -- | Generate code in the simplified JavaScript intermediate representation for all declarations in a
 -- module.
@@ -73,11 +70,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     let mnLookup = renameImports usedNames imps
     let decls' = renameModules mnLookup decls
 
-    env0 <- asks vars
-    let proceedDecl (prevEnv, prevDecls) decl' = do
-          (env'', decl'') <- local (\e -> e{vars = prevEnv}) $ bindToJs decl'
-          return (M.union env'' prevEnv, prevDecls . (decl'':))
-    jsDecls <- inFun $ ($[]) . snd <$> foldM proceedDecl (env0, id) decls'
+    jsDecls <- inFun $ map snd <$> mapM bindToJs decls'
     optimized <- traverse (traverse optimize) jsDecls
     let mnReverseLookup = M.fromList $ map (\(origName, (_, safeName)) -> (moduleNameToJs safeName, origName)) $ M.toList mnLookup
     let usedModuleNames = foldMap (foldMap (findModules mnReverseLookup)) optimized
@@ -342,12 +335,12 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
              else varToJs qi
   valueToJs' (Var (_, _, _, Just IsForeign) ident) =
     internalError $ "Encountered an unqualified reference to a foreign ident " ++ T.unpack (showQualified showIdent ident)
-  valueToJs' (Var _ q@(Qualified qual (Ident v))) = do
+  valueToJs' (Var _ q@(Qualified qual i)) = do
     env <- asks vars
     currMod <- asks currentModule
     single $
       if isNothing qual || qual == currMod
-      then case M.lookup v env of
+      then case M.lookup (identToJs i) env of
         Nothing -> varToJs q
         Just name -> AST.Var Nothing name
       else varToJs q
@@ -355,15 +348,15 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     (ds, vals) <- inExpr $ traverseCat valueToJs values
     resVar <- freshNameHint "case"
     dsr <- bindToVar resVar (([],) <$> bindersToJs ss binders vals)
-    return (ds ++ dsr, AST.Var Nothing resVar)
+    cont <- asks continuation
+    return (ds ++ dsr, cont $ AST.Var Nothing resVar)
   valueToJs' (Let _ ds val) = do
     env0 <- asks vars
     let proceedDecl (prevEnv, prevDecls) decl' = do
           (env'', decl'') <- local (\e -> e{vars = prevEnv}) $ bindToJs decl'
           return (M.union env'' prevEnv, prevDecls . (decl'':))
-    (env1, ds'c) <- inExpr $ foldM proceedDecl (env0, id) ds
-    let ds' = ds'c []
-    (ds'', ret) <- local (\env -> env{vars = Map.union env1 (vars env)}) $ valueToJs val
+    (env1, ds') <- inExpr $ second ($[]) <$> foldM proceedDecl (env0, id) ds
+    (ds'', ret) <- local (\env -> env{vars = env1}) $ valueToJs val
     return (concat ds' ++ ds'', ret)
   valueToJs' (Constructor (_, _, _, Just IsNewtype) _ ctor _) =
     single $ AST.VariableLetIntroduction Nothing (properToJs ctor) (Just $
