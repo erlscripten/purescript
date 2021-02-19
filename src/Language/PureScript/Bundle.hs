@@ -468,6 +468,12 @@ matchMember stmt
   , JSIdentifier _ name <- var
   , JSVarInit _ decl <- varInit
   = Just (Internal, name, decl)
+  -- let foo = expr;
+  | JSLet _ jsInit _ <- stmt
+  , [JSVarInitExpression var varInit] <- commaList jsInit
+  , JSIdentifier _ name <- var
+  , JSVarInit _ decl <- varInit
+  = Just (Internal, name, decl)
   -- exports.foo = expr; exports["foo"] = expr;
   | JSAssignStatement e (JSAssign _) decl _ <- stmt
   , Just name <- exportsAccessor e
