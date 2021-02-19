@@ -7,8 +7,6 @@ module Language.PureScript.CodeGen.JS
   , moduleToJs
   ) where
 
-import Debug.Trace
-
 import Prelude.Compat
 import Protolude (ordNub)
 
@@ -46,13 +44,23 @@ import qualified Language.PureScript.Constants as C
 
 import System.FilePath.Posix ((</>))
 
+data ContinuationKind = InExpr | InFun | InLet Text Text
 data Env = Env
   { options :: Options
   , vars :: VarEnv
-  , continuation :: AST -> AST
+  , continuationKind :: ContinuationKind
   , currentModule :: Maybe ModuleName
   , inToplevel :: Bool
   }
+
+runASTCont :: ContinuationKind -> AST -> AST
+runASTCont InExpr = id
+runASTCont InFun = AST.Return Nothing
+runASTCont (InLet breakRef i) =
+  \val -> AST.Block Nothing Nothing
+          [ AST.Assignment Nothing (AST.Var Nothing i) val
+          , AST.Break Nothing (Just breakRef)
+          ]
 
 type VarEnv = M.Map Text Text
 
@@ -100,25 +108,14 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
 
   inLet :: MonadReader Env m => Text -> Text -> m a -> m a
   inLet breakRef i = local $ \env ->
-    env{continuation = \val ->
-        AST.Block Nothing Nothing [AST.Assignment Nothing (AST.Var Nothing i) val, AST.Break Nothing (Just breakRef)]
+    env{continuationKind = InLet breakRef i
        }
 
   inFun :: MonadReader Env m => m a -> m a
-  inFun = local $ \env -> env{continuation = AST.Return Nothing}
+  inFun = local $ \env -> env{continuationKind = InFun}
 
   inExpr :: MonadReader Env m => m a -> m a
-  inExpr = local $ \env -> env{continuation = \x -> if isExpr x then x else error $ "NOT EXPR: " <> show x} where
-    isExpr x = case x of
-      AST.Block{} -> False
-      AST.Return{} -> False
-      AST.VariableIntroduction{} -> False
-      AST.VariableLetIntroduction{} -> False
-      AST.Label{} -> False
-      AST.For{} -> False
-      AST.While{} -> False
-      AST.IfElse{} -> False
-      _ -> True
+  inExpr = local $ \env -> env{continuationKind = InExpr}
 
   -- | Extracts all declaration names from a binding group.
   getNames :: Bind Ann -> [Ident]
@@ -261,7 +258,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     let (ss, _, _, _) = extractAnn e
     (ds, x) <- valueToJs' e
     x' <- withPos ss x
-    finCont <- asks continuation
+    finCont <- asks $ runASTCont . continuationKind
     return (ds, if willHandleContinuationByItself e then x' else finCont x')
 
   single :: AST -> m ([AST], AST)
@@ -347,9 +344,14 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   valueToJs' (Case (ss, _, _, _) values binders) = do
     (ds, vals) <- inExpr $ traverseCat valueToJs values
     resVar <- freshNameHint "case"
-    dsr <- bindToVar resVar (([],) <$> bindersToJs ss binders vals)
-    cont <- asks continuation
-    return (ds ++ dsr, cont $ AST.Var Nothing resVar)
+    contKind <- asks continuationKind
+    case contKind of
+      InFun -> do
+        val <- bindersToJs ss binders vals
+        return (ds, val)
+      _ -> do
+        dsr <- bindToVar resVar (([],) <$> bindersToJs ss binders vals)
+        return (ds ++ dsr, runASTCont contKind $ AST.Var Nothing resVar)
   valueToJs' (Let _ ds val) = do
     env0 <- asks vars
     let proceedDecl (prevEnv, prevDecls) decl' = do

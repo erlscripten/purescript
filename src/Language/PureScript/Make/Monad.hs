@@ -69,7 +69,17 @@ instance MonadBaseControl IO Make where
 
 -- | Execute a 'Make' monad, returning either errors, or the result of the compile plus any warnings.
 runMake :: Options -> Make a -> IO (Either MultipleErrors a, MultipleErrors)
-runMake opts = runLogger' . runExceptT . flip runReaderT Env{options = opts, vars = M.empty, continuation = const (error "codegen continuation undefined"), currentModule = Nothing, inToplevel = True} . unMake
+runMake opts
+  = runLogger'
+  . runExceptT
+  . flip runReaderT
+  Env{ options = opts
+     , vars = M.empty
+     , continuationKind = error "codegen continuation undefined"
+     , currentModule = Nothing
+     , inToplevel = True
+     }
+  . unMake
 
 -- | Run an 'IO' action in the 'Make' monad. The 'String' argument should
 -- describe what we were trying to do; it is used for rendering errors in the

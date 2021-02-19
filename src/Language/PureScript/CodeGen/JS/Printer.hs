@@ -127,7 +127,6 @@ literals = mkPattern' match'
     , mconcat <$> forM com comment
     , prettyPrintJS' js
     ]
-  match Pass = return $ emit ""
   match _ = mzero
 
   comment :: (Emit gen) => Comment -> StateT PrinterState Maybe gen

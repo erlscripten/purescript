@@ -88,8 +88,6 @@ data AST
   -- ^ Loop break
   | Continue (Maybe SourceSpan) (Maybe Text)
   -- ^ Loop continue
-  | Label (Maybe SourceSpan) Text  -- TODO: add as a loop parameter instead of a separate instruction
-  -- ^ Loop label.
   | IfElse (Maybe SourceSpan) AST AST (Maybe AST)
   -- ^ If-then-else statement
   | Return (Maybe SourceSpan) AST
@@ -102,8 +100,6 @@ data AST
   -- ^ instanceof check
   | Comment (Maybe SourceSpan) [Comment] AST
   -- ^ Commented JavaScript
-  | Pass
-  -- ^ Empty instruction
   deriving (Show, Eq)
 
 withSourceSpan :: SourceSpan -> AST -> AST
@@ -132,14 +128,12 @@ withSourceSpan withSpan = go where
   go (ForIn _ name j1 j2) = ForIn ss name j1 j2
   go (Break _ name) = Break ss name
   go (Continue _ name) = Continue ss name
-  go (Label _ name) = Label ss name
   go (IfElse _ j1 j2 j3) = IfElse ss j1 j2 j3
   go (Return _ js) = Return ss js
   go (ReturnNoResult _) = ReturnNoResult ss
   go (Throw _ js) = Throw ss js
   go (InstanceOf _ j1 j2) = InstanceOf ss j1 j2
   go (Comment _ com j) = Comment ss com j
-  go Pass = Pass
 
 getSourceSpan :: AST -> Maybe SourceSpan
 getSourceSpan = go where
@@ -164,14 +158,12 @@ getSourceSpan = go where
   go (ForIn ss _ _ _) = ss
   go (Break ss _) = ss
   go (Continue ss _) = ss
-  go (Label ss _) = ss
   go (IfElse ss _ _ _) = ss
   go (Return ss _) = ss
   go (ReturnNoResult ss) = ss
   go (Throw ss _) = ss
   go (InstanceOf ss _ _) = ss
   go (Comment ss _ _) = ss
-  go Pass = Nothing
 
 everywhere :: (AST -> AST) -> AST -> AST
 everywhere f = go where
