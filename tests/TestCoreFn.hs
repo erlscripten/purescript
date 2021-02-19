@@ -164,7 +164,7 @@ spec = context "CoreFnFromJsonTest" $ do
                     Case ann [Var ann (Qualified Nothing (Ident "x"))]
                       [ CaseAlternative
                         [ NullBinder ann ]
-                        (Left [(Literal ann (BooleanLiteral True), Literal ann (CharLiteral 'a'))])
+                        (Left [([Literal ann (BooleanLiteral True)], Literal ann (CharLiteral 'a'))])
                       ]
                 ]
       parseMod m `shouldSatisfy` isSuccess

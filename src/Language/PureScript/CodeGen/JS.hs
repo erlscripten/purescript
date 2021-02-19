@@ -264,8 +264,6 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   single :: AST -> m ([AST], AST)
   single = return . ([],)
 
-  (<$$>) :: (a -> b) -> m ([a], a) -> m ([b], b)
-  (<$$>) f m = fmap (bimap (map f) f) m
   traverseCat f l = do
     (ds, vs) <- unzip <$> traverse f l
     return (concat ds, vs)
@@ -288,7 +286,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   valueToJs' (Var (_, _, _, Just (IsConstructor _ _)) name) =
     single $ accessorString "create" $ qualifiedToJS id name
   valueToJs' (Accessor _ prop val) =
-    accessorString prop <$$> inExpr (valueToJs val)
+    second (accessorString prop) <$> inExpr (valueToJs val)
   valueToJs' (ObjectUpdate _ o ps) = do
     (dso, obj) <- inExpr $ valueToJs o
     (dss, sts) <- inExpr $ traverseCat (fmap (\(p, (d, x)) -> (d, (p, x))) . sndM valueToJs) ps
