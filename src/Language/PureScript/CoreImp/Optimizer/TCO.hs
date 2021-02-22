@@ -6,6 +6,7 @@ import Prelude.Compat
 import Debug.Trace
 
 import Control.Monad.State
+import Data.List
 import Data.Functor ((<&>))
 import Data.Text (Text, pack)
 import qualified Language.PureScript.Constants as C
@@ -17,13 +18,13 @@ data TCOState = TCOState
   -- | If there is a variable return right after the block end
   -- then assignment to that variable and breaking will be considered
   -- as a TCO candidate
-  , returnBlock :: !(Maybe (Text, Text))
+  , returnBlock :: ![(Text, Text)]
   , tailCalls :: !Int
   }
 emptyTCOState :: TCOState
 emptyTCOState = TCOState
   { supply = 0
-  , returnBlock = Nothing
+  , returnBlock = []
   , tailCalls = 0
   }
 
@@ -36,7 +37,7 @@ fresh = do
 inBlock :: Text -> Text -> State TCOState a -> State TCOState a
 inBlock breakL retvar act = do
   prev <- gets returnBlock
-  modify' (\s -> s{returnBlock = Just (breakL, retvar)})
+  modify' (\s -> s{returnBlock = (breakL, retvar):prev})
   r <- act
   modify' (\s -> s{returnBlock = prev})
   return r
@@ -121,27 +122,48 @@ tco = flip evalState emptyTCOState . everywhereTopDownM convertAST where
           ++ [Continue ss (Just tcoLoop)]
 
       loopify :: AST -> State TCOState AST
-      loopify (Return ss ret) | isSelfCall ident arity ret = makeTailJump ss ret
+      loopify (Return ss ret) | isSelfCall ident arity ret
+                                        = makeTailJump ss ret
       loopify (While ss name cond body) = While ss name cond <$> loopify body
-      loopify (For ss i js1 js2 body) = For ss i js1 js2 <$> loopify body
-      loopify (ForIn ss i js1 body) = ForIn ss i js1 <$> loopify body
-      loopify (IfElse ss cond body el) = IfElse ss cond <$> loopify body <*> mapM loopify el
-      loopify (Block ss n body) = Block ss n <$> loopifyBlock body
-      loopify other = return other
+      loopify (For ss i js1 js2 body)   = For ss i js1 js2 <$> loopify body
+      loopify (ForIn ss i js1 body)     = ForIn ss i js1 <$> loopify body
+      loopify (IfElse ss cond body el)  = IfElse ss cond <$> loopify body <*> mapM loopify el
+      loopify (Block ss n body)         = Block ss n <$> loopifyBlock body
+      loopify other                     = return other
 
       loopifyBlock :: [AST] -> State TCOState [AST]
       loopifyBlock [] = return []
-      loopifyBlock (Block ss (Just n) body : Return _ (Var _ var) : _) =
-        (:[]) . Block ss (Just n) <$> inBlock n var (loopifyBlock body)
-      loopifyBlock (h1@(Assignment _ (Var _ v) expr) : h2@(Break _ (Just block)) : t) = do
+      loopifyBlock (Block ss (Just n) body : ret@(Return _ (Var _ var)) : _) =
+        (:[ret]) . Block ss (Just n) <$> inBlock n var (loopifyBlock body)
+      loopifyBlock (h1@(Block ss (Just n) body) : h2@(Assignment _ (Var _ out) (Var _ in_)) : h3@(Break _ (Just block)) : _) = do
         rb <- gets returnBlock
-        case rb of
-          Just (rbBlock, rbVar)
-            | rbBlock == block, rbVar == v ->
+        if any (\(rbBlock, rbVar) -> rbBlock == block && rbVar == out) rb
+          then
+              sequence [Block ss (Just n) <$> inBlock n in_ (loopifyBlock body), pure h2, pure h3]
+          else traverse loopify [h1, h2, h3]
+      loopifyBlock (h1@(Assignment _ (Var _ v) expr) : h2@(Break _ (Just block)) : _) = do
+        rb <- gets returnBlock
+        if any (\(rbBlock, rbVar) -> rbBlock == block && rbVar == v) rb
+          then
               if isSelfCall ident arity expr
               then (:[]) <$> makeTailJump Nothing expr
               else return [Return Nothing expr]
-          _ -> (:) <$> loopify h1 <*> loopifyBlock (h2:t)
+          else traverse loopify [h1, h2]
+
+      -- FIXME: these are unrelated to TCO
+      loopifyBlock (VariableLetIntroduction ss var Nothing : Block _ blockname (Assignment _ (Var _ vname) expr : tb) : t)
+        | vname == var
+        , case tb of
+            [] -> True
+            (Break _ Nothing : _) -> True
+            (Break _ breakname : _) | breakname == blockname -> True
+            _ -> False
+        = loopifyBlock (VariableLetIntroduction ss var (Just expr) : t)
+      loopifyBlock (h@Return{}:_)   = (:[]) <$> loopify h
+      loopifyBlock (h@Break{}:_)    = (:[]) <$> loopify h
+      loopifyBlock (h@Continue{}:_) = (:[]) <$> loopify h
+      loopifyBlock (h@Throw{}:_)    = (:[]) <$> loopify h
+
       loopifyBlock (h:t) = (:) <$> loopify h <*> loopifyBlock t
 
     looped <- loopify js
