@@ -17,7 +17,7 @@
 --  * Inline Prelude.($), Prelude.(#), Prelude.(++), Prelude.(!!)
 --
 --  * Inlining primitive JavaScript operators
-module Language.PureScript.CoreImp.Optimizer (optimize) where
+module Language.PureScript.CoreImp.Optimizer (optimize, cleanupBlockStatements) where
 
 import Prelude.Compat
 

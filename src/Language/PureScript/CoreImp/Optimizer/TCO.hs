@@ -65,10 +65,10 @@ tco = flip evalState emptyTCOState . everywhereTopDownM convertAST where
   tcoLoopM = uniq "$tco_loop"
 
   convertAST :: AST -> State TCOState AST
-  convertAST js@(Assignment ass (Var vss name) fn@Function {}) = do
+  convertAST js@(VariableLetIntroduction ss name (Just fn@Function {})) = do
     conv <- convert name fn
     return $ case conv of
-      Just looped -> Assignment ass (Var vss name) looped
+      Just looped -> VariableLetIntroduction ss name (Just looped)
       _ -> js
   convertAST js = pure js
 
