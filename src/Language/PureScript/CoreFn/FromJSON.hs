@@ -246,20 +246,37 @@ caseAlternativeFromJSON modulePath = withObject "CaseAlternative" caseAlternativ
       isGuarded <- o .: "isGuarded"
       if isGuarded
         then do
-          es <- o .: "expressions" >>= listParser parseResultWithGuard
-          error "TODO: fromJSON"
-          -- return $ CaseAlternative bs (Left es)
+          es <- o .: "expressions" >>= listParser parseResultWithGuards
+          return $ CaseAlternative bs (Left es)
         else do
           e <- o .: "expression" >>= exprFromJSON modulePath
           return $ CaseAlternative bs (Right e)
 
-    parseResultWithGuard :: Value -> Parser (Guard Ann, Expr Ann)
-    parseResultWithGuard = withObject "parseCaseWithGuards" $
+    parseResultWithGuards :: Value -> Parser ([Guard Ann], Expr Ann)
+    parseResultWithGuards = withObject "parseCaseWithGuards" $
       \o -> do
-        g <- o .: "guard" >>= exprFromJSON modulePath
+        g <- o .: "guards" >>= listParser (guardFromJSON modulePath)
         e <- o .: "expression" >>= exprFromJSON modulePath
-        error "TODO: fromJSON"
-        -- return (g, e)
+        return (g, e)
+
+guardFromJSON :: FilePath -> Value -> Parser (Guard Ann)
+guardFromJSON modulePath = withObject "Guard" guardFromObj
+  where
+    guardFromObj o = do
+      type_ <- o .: "guardType"
+      case type_ of
+        "ConditionGuard" -> conditionGuardFromObj o
+        "PatternGuard"   -> patternGuardFromObj o
+        _ -> fail ("not recognized guard: \"" ++ T.unpack type_ ++ "\"")
+
+    conditionGuardFromObj o = do
+      cond <- o .: "guardCondition" >>= exprFromJSON modulePath
+      return $ ConditionGuard cond
+
+    patternGuardFromObj o = do
+      lv <- o .: "guardLvalue" >>= binderFromJSON modulePath
+      rv <- o .: "guardRvalue" >>= exprFromJSON modulePath
+      return $ PatternGuard lv rv
 
 binderFromJSON :: FilePath -> Value -> Parser (Binder Ann)
 binderFromJSON modulePath = withObject "Binder" binderFromObj

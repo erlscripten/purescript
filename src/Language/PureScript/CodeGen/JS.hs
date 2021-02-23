@@ -274,8 +274,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     (ds, js) <- inLet breakRef v ex
     return
       (AST.VariableLetIntroduction Nothing v Nothing :
-       ds ++
-       [AST.Block Nothing (Just breakRef) [js]]
+       [AST.Block Nothing (Just breakRef) (ds ++[js])]
       )
 
   valueToJs' :: Expr Ann -> m ([AST], AST)

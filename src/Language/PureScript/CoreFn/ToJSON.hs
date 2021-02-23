@@ -199,13 +199,20 @@ caseAlternativeToJSON (CaseAlternative bs r') =
       , T.pack "isGuarded"   .= toJSON isGuarded
       , T.pack (if isGuarded then "expressions" else "expression")
          .= case r' of
-             Left rs -> toJSON $ map (\(g, e) -> object [ T.pack "guard" .= toJSON (map guardToJSON g), T.pack "expression" .= exprToJSON e]) rs
+             Left rs -> toJSON $ map (\(g, e) -> object [ T.pack "guards" .= toJSON (map guardToJSON g), T.pack "expression" .= exprToJSON e]) rs
              Right r -> exprToJSON r
       ]
 
 guardToJSON :: Guard Ann -> Value
-guardToJSON (ConditionGuard e) = object [T.pack "guardCondition" .= exprToJSON e]
-guardToJSON (PatternGuard lv rv) = object [T.pack "guardLvalue" .= binderToJSON lv, T.pack "guardRvalue" .= exprToJSON rv]
+guardToJSON (ConditionGuard e)   = object
+  [ T.pack "guardType" .= "ConditionGuard"
+  , T.pack "guardCondition" .= exprToJSON e
+  ]
+guardToJSON (PatternGuard lv rv) = object
+  [ T.pack "guardType" .= "PatternGuard"
+  , T.pack "guardLvalue" .= binderToJSON lv
+  , T.pack "guardRvalue" .= exprToJSON rv
+  ]
 
 binderToJSON :: Binder Ann -> Value
 binderToJSON (VarBinder ann v)              = object [ T.pack "binderType"  .= "VarBinder"
