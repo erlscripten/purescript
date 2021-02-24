@@ -54,7 +54,7 @@ data ErrorMessage
   = UnsupportedModulePath String
   | InvalidTopLevel
   | UnableToParseModule String
-  | UnsupportedExport
+  | UnsupportedExport String -- TODO REMOVE STIRNG
   | ErrorInModule ModuleIdentifier ErrorMessage
   | MissingEntryPoint String
   | MissingMainModule String
@@ -206,10 +206,11 @@ printErrorMessage (UnableToParseModule err) =
   [ "The module could not be parsed:"
   , err
   ]
-printErrorMessage UnsupportedExport =
+printErrorMessage (UnsupportedExport s) =
   [ "An export was unsupported. Exports can be defined in one of two ways: "
   , "  1) exports.name = ..."
   , "  2) exports = { ... }"
+  , "ERROR: " <> s
   ]
 printErrorMessage (ErrorInModule mid e) =
   ("Error in module " ++ displayIdentifier mid ++ ":")
@@ -395,7 +396,7 @@ toModule mids mid filename top
       toExport (JSPropertyNameandValue name _ [val]) =
         (,,val,[]) <$> exportType val
                    <*> extractLabel' name
-      toExport _ = err UnsupportedExport
+      toExport e = err $ UnsupportedExport $ "toExport: " <> show e
 
       exportType :: JSExpression -> m ExportType
       exportType (JSMemberDot f _ _)
@@ -405,9 +406,9 @@ toModule mids mid filename top
         | JSIdentifier _ "$foreign" <- f
         = pure ForeignReexport
       exportType (JSIdentifier _ s) = pure (RegularExport s)
-      exportType _ = err UnsupportedExport
+      exportType e = err $ UnsupportedExport $ "exportType: " <> show e
 
-      extractLabel' = maybe (err UnsupportedExport) pure . extractLabel
+      extractLabel' = maybe (err $ UnsupportedExport "extractLabel1") pure . extractLabel
 
   toModuleElement other = pure (Other other)
 
@@ -435,10 +436,10 @@ getExportedIdentifiers mname top
 
   toIdent (JSPropertyNameandValue name _ [_]) =
     extractLabel' name
-  toIdent _ =
-    err UnsupportedExport
+  toIdent e =
+    err $ UnsupportedExport $ "toIdent: " <> show e
 
-  extractLabel' = maybe (err UnsupportedExport) pure . extractLabel
+  extractLabel' = maybe (err $ UnsupportedExport "extractLabel2") pure . extractLabel
 
 -- Matches JS statements like this:
 -- var ModuleName = require("file");
