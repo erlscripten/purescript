@@ -6,7 +6,6 @@ import Prelude.Compat
 import Debug.Trace
 
 import Control.Monad.State
-import Data.List
 import Data.Functor ((<&>))
 import Data.Text (Text, pack)
 import qualified Language.PureScript.Constants as C
@@ -69,6 +68,16 @@ tco = flip evalState emptyTCOState . everywhereTopDownM convertAST where
     conv <- convert name fn
     return $ case conv of
       Just looped -> VariableLetIntroduction ss name (Just looped)
+      _ -> js
+  convertAST js@(VariableIntroduction ss name (Just fn@Function {})) = do
+    conv <- convert name fn
+    return $ case conv of
+      Just looped -> VariableIntroduction ss name (Just looped)
+      _ -> js
+  convertAST js@(Assignment ss (Var vss name) fn@Function {}) = do
+    conv <- convert name fn
+    return $ case conv of
+      Just looped -> Assignment ss (Var vss name) looped
       _ -> js
   convertAST js = pure js
 
@@ -149,20 +158,6 @@ tco = flip evalState emptyTCOState . everywhereTopDownM convertAST where
               then (:[]) <$> makeTailJump Nothing expr
               else return [Return Nothing expr]
           else traverse loopify [h1, h2]
-
-      -- FIXME: these are unrelated to TCO
-      loopifyBlock (VariableLetIntroduction ss var Nothing : Block _ blockname (Assignment _ (Var _ vname) expr : tb) : t)
-        | vname == var
-        , case tb of
-            [] -> True
-            (Break _ Nothing : _) -> True
-            (Break _ breakname : _) | breakname == blockname -> True
-            _ -> False
-        = loopifyBlock (VariableLetIntroduction ss var (Just expr) : t)
-      loopifyBlock (h@Return{}:_)   = (:[]) <$> loopify h
-      loopifyBlock (h@Break{}:_)    = (:[]) <$> loopify h
-      loopifyBlock (h@Continue{}:_) = (:[]) <$> loopify h
-      loopifyBlock (h@Throw{}:_)    = (:[]) <$> loopify h
 
       loopifyBlock (h:t) = (:) <$> loopify h <*> loopifyBlock t
 

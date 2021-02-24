@@ -37,7 +37,7 @@ optimize js = do
     js' <- untilFixedPoint (inlineFnComposition . inlineUnsafeCoerce . inlineUnsafePartial . tidyUp . applyAll
       [ inlineCommonValues
       , inlineCommonOperators
-      ]) js -- DROGIE
+      ]) js
     untilFixedPoint (return . tidyUp) . tco . inlineST
       =<< untilFixedPoint (return . magicDoST)
       =<< untilFixedPoint (return . magicDoEff)
