@@ -26,7 +26,7 @@ import Language.PureScript.CoreFn.Meta (Meta(IsSyntheticApp))
 import Language.PureScript.CoreFn.Traversals
 import Language.PureScript.Names
 import Language.PureScript.PSString (decodeString)
-import qualified Language.PureScript.Constants.Prelude as C
+import qualified Language.PureScript.Constants as C
 
 -- |
 -- `discuss f m` is an action that listens to the output of `m`, passes that
@@ -383,7 +383,7 @@ optimizeCommonSubexpressions mn = traverse $ \case
   traverseCaseAlternative :: CaseAlternative Ann -> CSEMonad (CaseAlternative Ann)
   traverseCaseAlternative (CaseAlternative bs x) = CaseAlternative bs <$> do
     newScopeWithIdents (identsFromBinders bs) $
-      bitraverse (traverse $ bitraverse traverseAndWrapExpr traverseAndWrapExpr) traverseAndWrapExpr x
+      bitraverse (traverse $ bitraverse (traverse traverseAndWrapExpr) traverseAndWrapExpr) traverseAndWrapExpr x
 
   traverseLiteral :: Literal (Expr Ann) -> CSEMonad (Literal (Expr Ann))
   traverseLiteral = \case

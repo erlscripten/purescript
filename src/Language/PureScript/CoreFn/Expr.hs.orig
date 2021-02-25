@@ -73,7 +73,7 @@ data Bind a
 --
 data Guard a = ConditionGuard (Expr a)
              | PatternGuard (Binder a) (Expr a)
-  deriving (Show, Functor, Eq, Ord)
+  deriving (Show, Functor)
 
 -- |
 -- An alternative in a case statement
@@ -86,8 +86,13 @@ data CaseAlternative a = CaseAlternative
     -- |
     -- The result expression or a collect of guarded expressions
     --
+<<<<<<< HEAD
   , caseAlternativeResult :: Either [([Guard a], Expr a)] (Expr a)
+  } deriving (Show)
+=======
+  , caseAlternativeResult :: Either [(Guard a, Expr a)] (Expr a)
   } deriving (Show, Eq, Ord)
+>>>>>>> 4bf7699b (Float compiler-synthesized function applications)
 
 instance Functor CaseAlternative where
 
