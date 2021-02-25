@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveAnyClass #-}
 
@@ -34,7 +33,7 @@ import Language.PureScript.Kinds
 import Language.PureScript.TypeClassDictionaries
 import Language.PureScript.Comments
 import Language.PureScript.Environment
-import qualified Language.PureScript.Bundle as Bundle
+import qualified Language.PureScript.Bundle.Types as Bundle
 import qualified Language.PureScript.Constants as C
 import qualified Language.PureScript.CST.Errors as CST
 
@@ -839,10 +838,6 @@ data Expr
   -- A value with source position information
   --
   | PositionedValue SourceSpan [Comment] Expr
-  -- |
-  -- Failing pattern match – order to try the next branch
-  ---
-  | SafeCaseFail
   deriving (Show)
 
 -- |

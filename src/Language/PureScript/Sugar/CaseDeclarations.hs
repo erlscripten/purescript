@@ -59,7 +59,7 @@ desugarGuardedExprs
   -> Expr
   -> m Expr
 desugarGuardedExprs ss (Case scrut alternatives)
-  | any (not . isTrivialExpr) scrut = do
+  | not $ all isTrivialExpr scrut = do
     -- in case the scrutinee is non trivial (e.g. not a Var or Literal)
     -- we may evaluate the scrutinee more than once when a guard occurrs.
     -- We bind the scrutinee to Vars here to mitigate this case.
@@ -89,33 +89,6 @@ desugarGuardedExprs ss (Case scrut alternatives) =
       dge <- forM ge $ \(GuardedExpr g e) -> GuardedExpr (desugarGuard g) <$> desugarGuardedExprs ss e
       return $ CaseAlternative ab dge
 
-    -- -- Special case: CoreFn understands single condition guards on
-    -- -- binders right hand side.
-    -- desugarAlternatives (CaseAlternative ab ge : as)
-    --   | not (null cond_guards) =
-    --       (CaseAlternative ab cond_guards :)
-    --         <$> desugarGuardedAlternative ab rest as
-    --   | otherwise = desugarGuardedAlternative ab ge as
-    --   where
-    --     (cond_guards, rest) = span isSingleCondGuard ge
-
-    --     isSingleCondGuard (GuardedExpr [ConditionGuard _] _) = True
-    --     isSingleCondGuard _ = False
-
-    -- desugarGuardedAlternative :: [Binder]
-    --                           -> [GuardedExpr]
-    --                           -> [CaseAlternative]
-    --                           -> m [CaseAlternative]
-    -- desugarGuardedAlternative _vb [] rem_alts =
-    --   desugarAlternatives rem_alts
-
-    -- desugarGuardedAlternative vb (GuardedExpr gs e : ge) rem_alts = do
-    --   rhs <- desugarAltOutOfLine vb ge rem_alts $ \alt_fail ->
-    --     Case scrut
-    --     (CaseAlternative vb (desugarGuard gs)
-    --       : alt_fail' (length scrut))
-
-
     desugarGuard :: [Guard] -> [Guard]
     desugarGuard (ConditionGuard c1 : ConditionGuard c2 : gs) =
       desugarGuard (ConditionGuard (
@@ -126,42 +99,6 @@ desugarGuardedExprs ss (Case scrut alternatives) =
                      : gs)
     desugarGuard [] = []
     desugarGuard (h:t) = h:desugarGuard t
-
-    -- we generate a let-binding for the remaining guards
-    -- and alternatives. A CaseAlternative is passed (or in
-    -- fact the original case is partial non is passed) to
-    -- mk_body which branches to the generated let-binding.
-    desugarAltOutOfLine :: [Binder]
-                        -> [GuardedExpr]
-                        -> [CaseAlternative]
-                        -> ((Int -> [CaseAlternative]) -> Expr)
-                        -> m Expr
-    desugarAltOutOfLine alt_binder rem_guarded rem_alts mk_body
-      | Just rem_case <- mkCaseOfRemainingGuardsAndAlts = do
-        desugared <- desugarGuardedExprs ss rem_case
-        let
-          alt_fail :: Int -> [CaseAlternative]
-          alt_fail n = [CaseAlternative (replicate n NullBinder) [MkUnguarded desugared]]
-
-        pure $ mk_body alt_fail
-        -- pure $ Let FromLet [
-        --   ValueDecl (ss, []) rem_case_id Private []
-        --     [MkUnguarded (Abs (VarBinder ss unused_binder) desugared)]
-        --   ] (mk_body alt_fail)
-
-      | otherwise
-      = pure $ mk_body (const [])
-      where
-        mkCaseOfRemainingGuardsAndAlts
-          | not (null rem_guarded)
-          = Just $ Case scrut (CaseAlternative alt_binder rem_guarded : rem_alts)
-          | not (null rem_alts)
-          = Just $ Case scrut rem_alts
-          | otherwise
-          = Nothing
-
-    scrut_nullbinder :: [Binder]
-    scrut_nullbinder = replicate (length scrut) NullBinder
 
     -- case expressions with a single alternative which have
     -- a NullBinder occur frequently after desugaring

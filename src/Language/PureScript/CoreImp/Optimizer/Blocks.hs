@@ -6,6 +6,10 @@ module Language.PureScript.CoreImp.Optimizer.Blocks
   ) where
 
 import Prelude.Compat
+import qualified Data.Map as M
+import Data.Maybe
+import Language.PureScript.Comments
+import Language.PureScript.AST.SourcePos
 
 import Language.PureScript.CoreImp.AST
 
@@ -21,19 +25,44 @@ collapseNestedBlocks = everywhere collapse where
   go s = [s]
 
 cleanupBlockStatements :: [AST] -> [AST]
-cleanupBlockStatements = go where
-  go :: [AST] -> [AST]
+cleanupBlockStatements block = bringBackComments (go noComments) [] where
+
+  stripComments :: [AST]
+                -> Int
+                -> [([Int], AST)]
+                -> M.Map Int [(Maybe SourceSpan, [Comment])]
+                -> ([([Int], AST)], M.Map Int [(Maybe SourceSpan, [Comment])])
+  stripComments (Comment ss com h : t) n acc strip =
+    stripComments (h:t) n acc (M.insertWith (++) n [(ss, com)] strip)
+  stripComments (h:t) n acc strip =
+    stripComments t (n + 1) (([n], h):acc) strip
+  stripComments [] _ acc strip =
+    (reverse acc, strip)
+
+  (noComments, comments) = stripComments block 0 [] M.empty
+
+  bringBackComments :: [([Int], AST)] -> [AST] -> [AST]
+  bringBackComments [] acc = reverse acc
+  bringBackComments ((ids, ast):rest) acc =
+    let coms = concat $ mapMaybe (`M.lookup` comments) ids
+    in bringBackComments rest (foldr (\(ss, com) r -> Comment ss com r) ast coms : acc)
+
+  go :: [([Int], AST)] -> [([Int], AST)]
   -- TODO: ensure e1 is PURE
-  go ((IfElse ss e1 b1 Nothing):(IfElse _ e2 b2 Nothing):t) | e1 == e2 = go $ (IfElse ss e1 (Block ss Nothing [b1, b2]) Nothing):t
-  go ((IfElse ss1 e1 b1 Nothing):(IfElse ss2 (Binary _ And e2 e3) b2 me):t) | e1 == e2 = go $ (IfElse ss1 e1 (Block ss1 Nothing [b1, IfElse ss2 e3 b2 me]) Nothing):t
-  go ((Block ss l sts1):(Block _ Nothing sts2):t) = go $ ((Block ss l (sts1 ++ sts2)):t)
-  go ((VariableLetIntroduction ss1 n1 Nothing):(Block _ (Just label1) [Assignment _ (Var _ n2) js, Break _ (Just label2)]):t) | n1 == n2, label1 == label2 = (VariableLetIntroduction ss1 n1 (Just js)):(go t)
-  go (js@(Return _ _):_) = [js]
-  go (js@(ReturnNoResult _):_) = [js]
-  go (js@(Throw _ _):_) = [js]
-  go (js@(Break _ _):_) = [js]
-  go (js@(Continue _ _):_) = [js]
-  go (h:t) = h:(go t)
+  go ((n1, IfElse ss e1 b1 Nothing) : (n2, IfElse _ e2 b2 Nothing) : t)
+    | e1 == e2 = go $ (n1 ++ n2, IfElse ss e1 (Block ss Nothing [b1, b2]) Nothing) : t
+  go ((n1, IfElse ss1 e1 b1 Nothing):(n2, IfElse ss2 (Binary _ And e2 e3) b2 me) : t)
+    | e1 == e2 = go $ (n1 ++ n2, IfElse ss1 e1 (Block ss1 Nothing [b1, IfElse ss2 e3 b2 me]) Nothing) : t
+  go ((n1, Block ss l sts1) : (n2, Block _ Nothing sts2) : t) = go $ (n1 ++ n2, Block ss l (sts1 ++ sts2)) : t
+  go ((n1, VariableLetIntroduction ss1 name1 Nothing) : (n2, Block _ (Just label1) [Assignment _ (Var _ name2) js, Break _ (Just label2)]) : t)
+    | name1 == name2, label1 == label2 = (n1 ++ n2, VariableLetIntroduction ss1 name1 (Just js)) : go t
+  go ((n, js@(Return _ _)):_) = [(n, js)]
+  go ((n, js@(ReturnNoResult _)):_) = [(n, js)]
+  go ((n, js@(Throw _ _)):_) = [(n, js)]
+  go ((n, js@(Break _ _)):_) = [(n, js)]
+  go ((n, js@(Continue _ _)):_) = [(n, js)]
+
+  go (h:t) = h : go t
   go [] = []
 
 collapseNestedIfs :: AST -> AST

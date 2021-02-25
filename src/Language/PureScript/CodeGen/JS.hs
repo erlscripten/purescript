@@ -16,7 +16,7 @@ import Control.Monad.Except (MonadError, throwError)
 import Control.Monad.Reader (MonadReader, asks, local)
 import Control.Monad.Supply.Class
 
-import Data.Bifunctor(first, second, bimap)
+import Data.Bifunctor(first, second)
 import Data.List ((\\), intersect)
 import qualified Data.Foldable as F
 import qualified Data.Map as M
@@ -215,9 +215,11 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   nonRecToJS :: Ann -> Text -> Expr Ann -> m [AST]
   nonRecToJS a i e@(extractAnn -> (_, com, _, _)) | not (null com) = do
     withoutComment <- asks $ optionsNoComments . options
-    if withoutComment
-       then nonRecToJS a i (modifyAnn removeComments e)
-       else map (AST.Comment Nothing com) <$> nonRecToJS a i (modifyAnn removeComments e)
+    js <- nonRecToJS a i (modifyAnn removeComments e)
+    return $ if withoutComment then js
+             else case js of
+                    []    -> js
+                    (h:t) -> AST.Comment Nothing com h : t
   nonRecToJS (_, _, _, _) ident val = escapeTopLevel $ do
     env <- asks vars
     let solvedIdent = case M.lookup ident env of
@@ -272,11 +274,11 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
 
   bindToVar :: Text -> m ([AST], AST) -> m [AST]
   bindToVar v ex = do
-    breakRef <- freshNameHint $ "def_" <> v <> "_"
+    let breakRef = AST.initializerName v
     (ds, js) <- inLet breakRef v ex
     return
       (AST.VariableLetIntroduction Nothing v Nothing :
-       [AST.Block Nothing (Just breakRef) (ds ++[js])]
+       [AST.Block Nothing (Just breakRef) (ds ++ [js])]
       )
 
   valueToJs' :: Expr Ann -> m ([AST], AST)

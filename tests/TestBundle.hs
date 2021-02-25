@@ -68,16 +68,20 @@ assertBundles supportModules supportExterns supportForeigns inputFiles outputFil
         process <- findNodeProcess
         jsFiles <- Glob.globDir1 (Glob.compile "**/*.js") modulesDir
         let entryPoint = modulesDir </> "index.js"
-        let entryModule = map (`ModuleIdentifier` Regular) ["Main"] 
+        let entryModule = map (`ModuleIdentifier` Regular) ["Main"]
+        let logFile = entryPoint ++ "." ++ show (sum $ map length inputFiles)
         bundled <- runExceptT $ do
           input <- forM jsFiles $ \filename -> do
             js <- liftIO $ readUTF8File filename
+            -- liftIO $ putStrLn $ "FILE: " ++ filename ++ "\n" ++ js ++ "\n\n"
             mid <- guessModuleIdentifier filename
-            length js `seq` return (mid, Just filename, js) 
+            length js `seq` return (mid, Just filename, js)
           bundleSM input entryModule (Just $ "Main") "PS" (Just entryPoint) Nothing
         case bundled of
             Right (_, js) -> do
               writeUTF8File entryPoint js
+              liftIO $ putStrLn $ "LOG INTO: " ++ logFile
+              writeUTF8File logFile js
               result <- traverse (\node -> readProcessWithExitCode node [entryPoint] "") process
               hPutStrLn outputFile $ "\n" <> takeFileName (last inputFiles) <> ":"
               case result of
@@ -89,7 +93,7 @@ assertBundles supportModules supportExterns supportForeigns inputFiles outputFil
                  | otherwise -> return $ Just $ "Test did not finish with 'Done':\n\n" <> out
                 Just (ExitFailure _, _, err) -> return $ Just err
                 Nothing -> return $ Just "Couldn't find node.js executable"
-            Left err -> return . Just $ "Coud not bundle: " ++ show err
+            Left err -> return . Just $ "Could not bundle: " ++ show err
 
 logfile :: FilePath
 logfile = "bundle-tests.out"

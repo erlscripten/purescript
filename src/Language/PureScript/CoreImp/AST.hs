@@ -7,6 +7,7 @@ import Prelude.Compat
 import Control.Monad ((>=>))
 import Control.Monad.Identity (Identity(..), runIdentity)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Data.List(foldl')
 
 import Language.PureScript.AST (SourceSpan(..))
@@ -101,6 +102,19 @@ data AST
   | Comment (Maybe SourceSpan) [Comment] AST
   -- ^ Commented JavaScript
   deriving (Show, Eq)
+
+initializerPrefix :: Text
+initializerPrefix = "$init__"
+
+initializerName :: Text -> Text
+initializerName name = initializerPrefix <> name
+
+dropInitializerName :: Text -> Maybe Text
+dropInitializerName name =
+  let l = Text.length initializerPrefix
+  in case Text.splitAt l name of
+    (pref, rest) | pref == initializerPrefix -> Just rest
+    _ -> Nothing
 
 withSourceSpan :: SourceSpan -> AST -> AST
 withSourceSpan withSpan = go where
