@@ -554,7 +554,7 @@ compile modules entryPoints = filteredModules
   filteredModules = map filterUsed modules
     where
     filterUsed :: Module -> Module
-    filterUsed (Module mid fn ds) =  trace ("REFERENCED: " <> show (fold $ M.lookup mid moduleReferenceMap)) $  Module mid fn (map filterExports (go ds))
+    filterUsed (Module mid fn ds) = Module mid fn (map filterExports (go ds))
       where
       go :: [ModuleElement] -> [ModuleElement]
       go [] = []
@@ -577,11 +577,6 @@ compile modules entryPoints = filteredModules
 
       isDeclUsed :: ModuleElement -> Bool
       isDeclUsed (Member _ visibility nm _ _) = isKeyUsed (mid, nm, visibility)
-      isDeclUsed (Block (Just "$init__main") _ deps) =
-        let r1 = isKeyUsed (mid, "main", Public)
-            r2 = isKeyUsed (mid, "main", Internal)
-        in trace ("KURWA: " <> show r1 <> " CHUJ " <> show r2 <>
-                 "DEPS ARE " <> show deps <> "\n\n") r1
       isDeclUsed (Block (Just n) _ _)
         | Just varName <- CoreAST.dropInitializerName (TS.pack n)
         = isKeyUsed (mid, TS.unpack varName, Public)
@@ -589,10 +584,6 @@ compile modules entryPoints = filteredModules
       isDeclUsed _ = True
 
       isKeyUsed :: Key -> Bool
-      isKeyUsed k@(_, "eq", _)
-        | Just me <- vertexFor k = trace ("USED " <> show k <> ":\n" <> show ( me `S.member` reachableSet)) $ me `S.member` reachableSet
-      isKeyUsed k@(_, "main", _)
-        | Just me <- vertexFor k = trace ("USED " <> show k <> ":\n" <> show ( me `S.member` reachableSet)) $ me `S.member` reachableSet
       isKeyUsed k
         | Just me <- vertexFor k = me `S.member` reachableSet
         | otherwise = False
