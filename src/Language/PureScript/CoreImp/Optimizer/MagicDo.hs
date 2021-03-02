@@ -54,7 +54,7 @@ magicDo effectModule C.EffectDictionaries{..} expander = everywhereTopDown conve
     Function s1 (Just fnName) [] $ Block s2 n (App s2 m [] : map applyReturns js )
   -- Desugar bind
   convert (App _ (App _ bind [m]) [Function s1 Nothing [arg] (Block s2 n js)]) | isBind bind =
-    Function s1 (Just fnName) [] $ Block s2 n (VariableIntroduction s2 arg (Just (UnknownPurity, App s2 m [])) : map applyReturns js)
+    Function s1 (Just fnName) [] $ Block s2 Nothing (VariableIntroduction s2 arg UnknownPurity (Just $ App s2 m []) : map applyReturns js)
   -- Desugar untilE
   convert (App s1 (App _ f [arg]) []) | isEffFunc edUntil f =
     App s1 (Function s1 Nothing [] (Block s1 Nothing [ While s1 Nothing (Unary s1 Not (App s1 arg [])) (Block s1 Nothing []), Return s1 $ ObjectLiteral s1 []])) []
@@ -130,7 +130,7 @@ inlineST = everywhere convertBlock
   -- Find all ST Refs initialized in this block
   findSTRefsIn = everything (++) isSTRef
     where
-    isSTRef (VariableIntroduction _ ident (Just (UnknownPurity, App _ (App _ f [_]) []))) | isSTFunc C.newSTRef f = [ident]
+    isSTRef (VariableIntroduction _ ident UnknownPurity (Just (App _ (App _ f [_]) []))) | isSTFunc C.newSTRef f = [ident]
     isSTRef _ = []
   -- Find all STRefs used as arguments to readSTRef, writeSTRef, modifySTRef
   findAllSTUsagesIn = everything (++) isSTUsage

@@ -380,10 +380,21 @@ optimizeCommonSubexpressions mn = traverse $ \case
     App a v1 v2           -> App a <$> traverseExpr v1 <*> traverseExpr v2
     x                     -> return x
 
+  traverseGuardedExpr :: [Guard Ann] -> Expr Ann -> CSEMonad ([Guard Ann], Expr Ann)
+  traverseGuardedExpr [] e = ([],) <$> traverseAndWrapExpr e
+  traverseGuardedExpr ((ConditionGuard c) : t) e = do
+    g <- ConditionGuard <$> traverseAndWrapExpr c
+    (gs, e') <- traverseGuardedExpr t e
+    return (g:gs, e')
+  traverseGuardedExpr ((PatternGuard lv rv) : t) e = do
+    g <- PatternGuard lv <$> traverseAndWrapExpr rv
+    (gs, e') <- newScopeWithIdents (identsFromBinders [lv]) (traverseGuardedExpr t e)
+    return (g:gs, e')
+
   traverseCaseAlternative :: CaseAlternative Ann -> CSEMonad (CaseAlternative Ann)
   traverseCaseAlternative (CaseAlternative bs x) = CaseAlternative bs <$> do
     newScopeWithIdents (identsFromBinders bs) $
-      bitraverse (traverse $ bitraverse (traverse traverseAndWrapExpr) traverseAndWrapExpr) traverseAndWrapExpr x
+      bitraverse (traverse (uncurry traverseGuardedExpr)) traverseAndWrapExpr x
 
   traverseLiteral :: Literal (Expr Ann) -> CSEMonad (Literal (Expr Ann))
   traverseLiteral = \case

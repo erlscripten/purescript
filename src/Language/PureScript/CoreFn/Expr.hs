@@ -73,7 +73,7 @@ data Bind a
 --
 data Guard a = ConditionGuard (Expr a)
              | PatternGuard (Binder a) (Expr a)
-  deriving (Show, Functor, Eq, Ord)
+  deriving (Show, Eq, Ord, Functor)
 
 -- |
 -- An alternative in a case statement

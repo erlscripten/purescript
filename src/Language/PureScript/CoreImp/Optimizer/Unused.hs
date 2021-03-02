@@ -31,5 +31,5 @@ removeUnusedPureVars :: AST -> AST
 removeUnusedPureVars = everywhere $ removeFromBlock (foldr f [])
   where
   f :: AST -> [AST] -> [AST]
-  f (VariableIntroduction _ var (Just (IsPure, _))) sts | not (any (isUsed var) sts) = sts
+  f (VariableIntroduction _ var IsPure _) sts | not (any (isUsed var) sts) = sts
   f s sts = s : sts

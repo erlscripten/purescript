@@ -3,8 +3,6 @@ module Language.PureScript.CoreImp.Optimizer.TCO (tco) where
 
 import Prelude.Compat
 
-import Debug.Trace
-
 import Control.Monad.State
 import Data.Functor ((<&>))
 import Data.Text (Text, pack)
@@ -64,20 +62,20 @@ tco = flip evalState emptyTCOState . everywhereTopDownM convertAST where
   tcoLoopM = uniq "$tco_loop"
 
   convertAST :: AST -> State TCOState AST
-  convertAST js@(VariableLetIntroduction ss name (Just fn@Function {})) = do
+  convertAST js@(VariableLetIntroduction ss name p (Just (unwrapIife -> (rewrapIife, fn@Function {})))) = do
     conv <- convert name fn
     return $ case conv of
-      Just looped -> VariableLetIntroduction ss name (Just looped)
+      Just looped -> VariableLetIntroduction ss name p (Just$ rewrapIife looped)
       _ -> js
-  convertAST js@(VariableIntroduction ss name (Just fn@Function {})) = do
+  convertAST js@(VariableIntroduction ss name p (Just (unwrapIife -> (rewrapIife, fn@Function {})))) = do
     conv <- convert name fn
     return $ case conv of
-      Just looped -> VariableIntroduction ss name (Just looped)
+      Just looped -> VariableIntroduction ss name p (Just $ rewrapIife looped)
       _ -> js
-  convertAST js@(Assignment ss (Var vss name) fn@Function {}) = do
+  convertAST js@(Assignment ss (Var vss name) (unwrapIife -> (rewrapIife, fn@Function {}))) = do
     conv <- convert name fn
     return $ case conv of
-      Just looped -> Assignment ss (Var vss name) looped
+      Just looped -> Assignment ss (Var vss name) (rewrapIife looped)
       _ -> js
   convertAST js = pure js
 
@@ -98,6 +96,19 @@ tco = flip evalState emptyTCOState . everywhereTopDownM convertAST where
     return $ if tcs == 0
       then Nothing
       else Just $ replace looped
+
+  unwrapIife :: AST -> (AST -> AST, AST)
+  unwrapIife (App s1 (Function s2 ident args (unwrapPureVars -> (rewrapPureVars, Return s3 value))) []) =
+    (\value' -> App s1 (Function s2 ident args (rewrapPureVars (Return s3 value'))) [], value)
+  unwrapIife js = (id, js)
+
+  unwrapPureVars :: AST -> (AST -> AST, AST)
+  unwrapPureVars js@(Block ss n xs) = go id xs
+    where
+      go f [x] = (\x' -> Block ss n (f [x']), x)
+      go f (v@(VariableIntroduction _ _ IsPure _) : xs') = go (f . (v :)) xs'
+      go _ _ = (id, js)
+  unwrapPureVars js = (id, js)
 
   rewriteFunctionsWith :: ([Text] -> [Text]) -> [[Text]] -> (AST -> AST) -> AST -> ([[Text]], AST, AST -> AST)
   rewriteFunctionsWith argMapper = collectAllFunctionArgs
@@ -164,14 +175,15 @@ tco = flip evalState emptyTCOState . everywhereTopDownM convertAST where
     looped <- loopify js
 
     pure $ Block rootSS Nothing $
-        map (\arg -> VariableIntroduction rootSS (tcoVar arg) (Just (Var rootSS (copyVar arg)))) outerArgs ++
+        map (\arg -> VariableIntroduction rootSS (tcoVar arg) UnknownPurity (Just (Var rootSS (copyVar arg)))) outerArgs ++
         [ While rootSS (Just tcoLoop) (BooleanLiteral Nothing True)
           (Block rootSS Nothing $
-            map (\v -> VariableLetIntroduction rootSS v (Just . Var rootSS . tcoVar $ v)) outerArgs ++
-            map (\v -> VariableLetIntroduction rootSS v (Just . Var rootSS . copyVar $ v)) innerArgs ++
+            map (\v -> VariableLetIntroduction rootSS v UnknownPurity (Just . Var rootSS . tcoVar $ v)) outerArgs ++
+            map (\v -> VariableLetIntroduction rootSS v UnknownPurity (Just . Var rootSS . copyVar $ v)) innerArgs ++
             [looped]
           )
         ]
+
     where
     rootSS = Nothing
 

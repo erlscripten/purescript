@@ -54,8 +54,8 @@ cleanupBlockStatements block = bringBackComments (go noComments) [] where
   go ((n1, IfElse ss1 e1 b1 Nothing):(n2, IfElse ss2 (Binary _ And e2 e3) b2 me) : t)
     | e1 == e2 = go $ (n1 ++ n2, IfElse ss1 e1 (Block ss1 Nothing [b1, IfElse ss2 e3 b2 me]) Nothing) : t
   go ((n1, Block ss l sts1) : (n2, Block _ Nothing sts2) : t) = go $ (n1 ++ n2, Block ss l (sts1 ++ sts2)) : t
-  go ((n1, VariableLetIntroduction ss1 name1 Nothing) : (n2, Block _ (Just label1) [Assignment _ (Var _ name2) js, Break _ (Just label2)]) : t)
-    | name1 == name2, label1 == label2 = (n1 ++ n2, VariableLetIntroduction ss1 name1 (Just js)) : go t
+  go ((n1, VariableLetIntroduction ss1 name1 p Nothing) : (n2, Block _ (Just label1) [Assignment _ (Var _ name2) js, Break _ (Just label2)]) : t)
+    | name1 == name2, label1 == label2 = (n1 ++ n2, VariableLetIntroduction ss1 name1 p (Just js)) : go t
   go ((n, js@(Return _ _)):_) = [(n, js)]
   go ((n, js@(ReturnNoResult _)):_) = [(n, js)]
   go ((n, js@(Throw _ _)):_) = [(n, js)]

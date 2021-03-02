@@ -66,10 +66,10 @@ optimize js = do
 -- level and not worrying about any inner scopes.
 --
 buildExpander :: AST -> AST -> AST
-buildExpander (VariableIntroduction _ _ (Just (_, (App _ (Function _ Nothing [] (Block _ bs)) [])))) =
+buildExpander (VariableIntroduction _ _ _ (Just (App _ (Function _ Nothing [] (Block _ _ bs)) []))) =
   replaceIdents (foldr f [] bs)
   where
-  f (VariableIntroduction _ name (Just (IsPure, e))) = ((name, e) :)
+  f (VariableIntroduction _ name IsPure (Just e)) = ((name, e) :)
   f _ = id
 buildExpander _ = id
 

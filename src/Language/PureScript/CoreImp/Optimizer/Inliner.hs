@@ -78,10 +78,10 @@ inlineVariables = everywhere $ removeFromBlock go
   where
   go :: [AST] -> [AST]
   go [] = []
-  go (VariableIntroduction _ var (Just (_, js)) : sts)
+  go (VariableIntroduction _ var _ (Just js) : sts)
     | shouldInline js && not (any (isReassigned var) sts) && not (any (isRebound js) sts) && not (any (isUpdated var) sts) =
       go (map (replaceIdent var js) sts)
-  go (VariableLetIntroduction _ var (Just (_, js)) : sts)
+  go (VariableLetIntroduction _ var _ (Just js) : sts)
     | shouldInline js && not (any (isReassigned var) sts) && not (any (isRebound js) sts) && not (any (isUpdated var) sts) =
       go (map (replaceIdent var js) sts)
   go (s:sts) = s : go sts
@@ -278,7 +278,7 @@ inlineFnComposition expander = everywhereTopDownM convert
   mkApps :: Maybe SourceSpan -> [Either AST (Text, AST)] -> Text -> AST
   mkApps ss fns a = App ss (Function ss Nothing [] (Block ss Nothing $ vars <> [Return Nothing comp])) []
     where
-    vars = uncurry (VariableIntroduction ss) . fmap (Just . (UnknownPurity,)) <$> rights fns
+    vars = (\(n, v) -> VariableIntroduction ss n UnknownPurity (Just v)) <$> rights fns
     comp = Function ss Nothing [a] (Block ss Nothing [Return Nothing apps])
     apps = foldr (\fn acc -> App ss (mkApp fn) [acc]) (Var ss a) fns
 
