@@ -79,8 +79,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     let decls' = renameModules mnLookup decls
 
     jsDecls <- inFun $ map snd <$> mapM bindToJs decls'
-    jsDecls' <- traverse (traverse optimize) jsDecls
-    optimized <- traverse (pure . cleanupBlockStatements) jsDecls'
+    optimized <- map cleanupBlockStatements <$> traverse (traverse optimize) jsDecls
 
     let mnReverseLookup = M.fromList $ map (\(origName, (_, safeName)) -> (moduleNameToJs safeName, origName)) $ M.toList mnLookup
     let usedModuleNames = foldMap (foldMap (findModules mnReverseLookup)) optimized
