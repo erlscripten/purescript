@@ -44,6 +44,8 @@ import qualified Language.PureScript.Constants as C
 
 import System.FilePath.Posix ((</>))
 
+import Debug.Trace
+
 data ContinuationKind = InExpr | InFun | InLet Text Text
 data Env = Env
   { options :: Options
@@ -283,12 +285,12 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
   valueToJs' :: Expr Ann -> m ([AST], AST)
   valueToJs' (Literal (pos, _, _, _) l) =
     rethrowWithPosition pos $ literalToValueJS pos l
-  valueToJs' (Var (_, _, _, Just (IsConstructor _ [])) name) =
-    single $ accessorString "value" $ qualifiedToJS id name
+  valueToJs' (Var (_, _, _, Just (IsConstructor _ [])) (Qualified _ name)) =
+    single $ AST.ArrayLiteral Nothing [AST.StringLiteral Nothing $ mkString $ identToJs name]
   valueToJs' (Var (_, _, _, Just (IsConstructor _ _)) name) =
     single $ accessorString "create" $ qualifiedToJS id name
   valueToJs' (Accessor _ prop val) =
-    second (accessorString prop) <$> inExpr (valueToJs val)
+    second (accessorString $ prop) <$> inExpr (valueToJs val)
   valueToJs' (ObjectUpdate _ o ps) = do
     (dso, obj) <- inExpr $ valueToJs o
     (dss, sts) <- inExpr $ traverseCat (fmap (\(p, (d, x)) -> (d, (p, x))) . sndM valueToJs) ps
@@ -315,8 +317,8 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     (dsa, args') <- inExpr $ traverseCat valueToJs args
     case f of
       Var (_, _, _, Just IsNewtype) _ -> return (dsa, head args')
-      Var (_, _, _, Just (IsConstructor _ fields)) name | length args == length fields ->
-        return (dsa, AST.Unary Nothing AST.New $ AST.App Nothing (qualifiedToJS id name) args')
+      Var (_, _, _, Just (IsConstructor _ fields)) (Qualified _ name) | length args == length fields ->
+        return (dsa, AST.ArrayLiteral Nothing ((AST.StringLiteral Nothing $ mkString $ identToJs name):args'))
       Var (_, _, _, Just IsTypeClassConstructor) name ->
         return (dsa, AST.Unary Nothing AST.New $ AST.App Nothing (qualifiedToJS id name) args')
       _ -> do
@@ -374,7 +376,7 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
           let body = [ AST.Assignment Nothing ((accessorString $ mkString $ identToJs f) (AST.Var Nothing "this")) (var f) | f <- fields ]
           in AST.Function Nothing (Just (properToJs ctor)) (identToJs `map` fields) (AST.Block Nothing Nothing body)
         createFn =
-          let body = AST.Unary Nothing AST.New $ AST.App Nothing (AST.Var Nothing (properToJs ctor)) (var `map` fields)
+          let body = AST.ArrayLiteral Nothing ((AST.StringLiteral Nothing $ mkString $ properToJs ctor):(var `map` fields))
           in foldr (\f inner -> AST.Function Nothing Nothing [identToJs f] (AST.Block Nothing Nothing [AST.Return Nothing inner])) body fields
     in single $ iife (properToJs ctor) [ constructor
                           , AST.Assignment Nothing (accessorString "create" (AST.Var Nothing (properToJs ctor))) createFn
@@ -505,22 +507,28 @@ moduleToJs (Module _ coms mn _ imps exps foreigns decls) foreign_ =
     return (AST.VariableLetIntroduction Nothing (identToJs ident) (Just (AST.Var Nothing varName)) : done)
   binderToJs' varName done (ConstructorBinder (_, _, _, Just IsNewtype) _ _ [b]) =
     binderToJs varName done b
-  binderToJs' varName done (ConstructorBinder (_, _, _, Just (IsConstructor ctorType fields)) _ ctor bs) = do
+  binderToJs' varName done (ConstructorBinder (_, _, _, Just (IsConstructor ctorType fields)) _ (Qualified _ ctor) bs) = do
     js <- go (zip fields bs) done
     return $ case ctorType of
       ProductType -> js
       SumType ->
-        [AST.IfElse Nothing (AST.InstanceOf Nothing (AST.Var Nothing varName) (qualifiedToJS (Ident . runProperName) ctor))
+        [AST.IfElse Nothing (AST.Binary Nothing AST.EqualTo (AST.Indexer Nothing (AST.NumericLiteral Nothing $ Left 0) (AST.Var Nothing varName)) (AST.StringLiteral Nothing $ mkString $ properToJs ctor))
                   (AST.Block Nothing Nothing js)
                   Nothing]
     where
     go :: [(Ident, Binder Ann)] -> [AST] -> m [AST]
     go [] done' = return done'
+    go ((IntIdent n, binder) : remain) done' = do
+      argVar <- freshName
+      done'' <- go remain done'
+      js <- binderToJs argVar done'' binder
+      return (AST.VariableLetIntroduction Nothing argVar (Just $ AST.Indexer Nothing (AST.NumericLiteral Nothing $ Left $ n+1) $ AST.Var Nothing varName) : js)
     go ((field, binder) : remain) done' = do
       argVar <- freshName
       done'' <- go remain done'
       js <- binderToJs argVar done'' binder
       return (AST.VariableLetIntroduction Nothing argVar (Just $ accessorString (mkString $ identToJs field) $ AST.Var Nothing varName) : js)
+
   binderToJs' _ _ ConstructorBinder{} =
     internalError "binderToJs: Invalid ConstructorBinder in binderToJs"
   binderToJs' varName done (NamedBinder _ ident binder) = do

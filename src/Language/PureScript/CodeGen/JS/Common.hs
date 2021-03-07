@@ -21,6 +21,7 @@ moduleNameToJs (ModuleName mn) =
 --
 --  * Reserved javascript identifiers are prefixed with '$$'.
 identToJs :: Ident -> Text
+identToJs (IntIdent i) = anyNameToJs (T.pack $ "value" <> show i)
 identToJs (Ident name) = anyNameToJs name
 identToJs (GenIdent _ _) = internalError "GenIdent in identToJs"
 identToJs UnusedIdent = "$__unused"

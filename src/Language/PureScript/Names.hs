@@ -78,6 +78,8 @@ data Ident
   -- An alphanumeric identifier
   --
   = Ident Text
+  -- | Numeric identifier
+  | IntIdent Integer
   -- |
   -- A generated name for an identifier
   --

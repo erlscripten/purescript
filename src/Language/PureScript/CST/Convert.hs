@@ -636,4 +636,4 @@ convertModule fileName module'@(Module _ _ modName exps _ imps decls _) = do
   importCtr (a, b, c, d) = AST.ImportDeclaration a b c d
 
 ctrFields :: [N.Ident]
-ctrFields = [N.Ident ("value" <> Text.pack (show (n :: Integer))) | n <- [0..]]
+ctrFields = [N.IntIdent n | n <- [0..]]
